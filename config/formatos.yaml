@@ -1,0 +1,164 @@
+
+formatos:
+  "1001":
+    nombre: "Pagos o Abonos en Cuenta y Retenciones practicadas"
+    version: 10
+    grupo_fuente: "Recibido"
+    columnas:
+      - { campo: cpt,   nombre: "Concepto",                                         tipo: int,  obligatorio: true,  max: 4 }
+      - { campo: tdoc,  nombre: "Tipo Documento",                                   tipo: int,  obligatorio: true,  max: 2 }
+      - { campo: nid,   nombre: "Numero Identificacion",                            tipo: str,  obligatorio: true,  max: 20 }
+      - { campo: apl1,  nombre: "Primer Apellido",                                  tipo: str,  obligatorio: false, max: 60 }
+      - { campo: apl2,  nombre: "Segundo Apellido",                                 tipo: str,  obligatorio: false, max: 60 }
+      - { campo: nom1,  nombre: "Primer Nombre",                                    tipo: str,  obligatorio: false, max: 60 }
+      - { campo: nom2,  nombre: "Otros Nombres",                                    tipo: str,  obligatorio: false, max: 60 }
+      - { campo: raz,   nombre: "Razon Social",                                     tipo: str,  obligatorio: false, max: 450 }
+      - { campo: dir,   nombre: "Direccion",                                        tipo: str,  obligatorio: false, max: 200 }
+      - { campo: dpto,  nombre: "Codigo Departamento",                              tipo: int,  obligatorio: false, max: 2 }
+      - { campo: mun,   nombre: "Codigo Municipio",                                 tipo: int,  obligatorio: false, max: 3 }
+      - { campo: pais,  nombre: "Pais",                                             tipo: int,  obligatorio: true,  max: 4 }
+      - { campo: pago,  nombre: "Pago o Abono en cuenta",                           tipo: long, obligatorio: true,  max: 18 }
+      - { campo: pnded, nombre: "Pago no deducible",                                tipo: long, obligatorio: true,  max: 18 }
+      - { campo: ided,  nombre: "IVA mayor valor del costo deducible",              tipo: long, obligatorio: true,  max: 18 }
+      - { campo: inded, nombre: "IVA mayor valor del costo no deducible",           tipo: long, obligatorio: true,  max: 18 }
+      - { campo: retp,  nombre: "Retencion Renta practicada",                       tipo: long, obligatorio: true,  max: 18 }
+      - { campo: reta,  nombre: "Retencion Renta asumida",                          tipo: long, obligatorio: true,  max: 18 }
+      - { campo: comun, nombre: "Retencion IVA Regimen Comun",                      tipo: long, obligatorio: true,  max: 18 }
+      - { campo: ndom,  nombre: "Retencion IVA No Domiciliados",                    tipo: long, obligatorio: true,  max: 18 }
+
+  "1005":
+    nombre: "Impuesto a las Ventas Descontable"
+    version: 8
+    grupo_fuente: "Recibido"
+    columnas:
+      - { campo: tdoc,   nombre: "Tipo Documento",         tipo: int,  obligatorio: true,  max: 2 }
+      - { campo: nid,    nombre: "Numero Identificacion",  tipo: str,  obligatorio: true,  max: 20 }
+      - { campo: dv,     nombre: "Digito Verificacion",    tipo: int,  obligatorio: false, max: 1 }
+      - { campo: apl1,   nombre: "Primer Apellido",        tipo: str,  obligatorio: false, max: 60 }
+      - { campo: apl2,   nombre: "Segundo Apellido",       tipo: str,  obligatorio: false, max: 60 }
+      - { campo: nom1,   nombre: "Primer Nombre",          tipo: str,  obligatorio: false, max: 60 }
+      - { campo: nom2,   nombre: "Otros Nombres",          tipo: str,  obligatorio: false, max: 60 }
+      - { campo: raz,    nombre: "Razon Social",           tipo: str,  obligatorio: false, max: 450 }
+      - { campo: vimp,   nombre: "Impuesto descontable",   tipo: long, obligatorio: true,  max: 18 }
+      - { campo: ivade,  nombre: "IVA resultante devoluciones ventas anuladas", tipo: long, obligatorio: true, max: 18 }
+      - { campo: ivavcg, nombre: "IVA comun general",      tipo: long, obligatorio: false, max: 18 }
+
+  "1006":
+    nombre: "Impuesto a las Ventas Generado e Impuesto al Consumo"
+    version: 8
+    grupo_fuente: "Emitido"
+    columnas:
+      - { campo: tdoc,  nombre: "Tipo Documento",         tipo: int,  obligatorio: true,  max: 2 }
+      - { campo: nid,   nombre: "Numero Identificacion",  tipo: str,  obligatorio: true,  max: 20 }
+      - { campo: dv,    nombre: "Digito Verificacion",    tipo: int,  obligatorio: false, max: 1 }
+      - { campo: apl1,  nombre: "Primer Apellido",        tipo: str,  obligatorio: false, max: 60 }
+      - { campo: apl2,  nombre: "Segundo Apellido",       tipo: str,  obligatorio: false, max: 60 }
+      - { campo: nom1,  nombre: "Primer Nombre",          tipo: str,  obligatorio: false, max: 60 }
+      - { campo: nom2,  nombre: "Otros Nombres",          tipo: str,  obligatorio: false, max: 60 }
+      - { campo: raz,   nombre: "Razon Social",           tipo: str,  obligatorio: false, max: 450 }
+      - { campo: imp,   nombre: "Impuesto generado",      tipo: long, obligatorio: true,  max: 20 }
+      - { campo: iva,   nombre: "IVA recuperado en devoluciones", tipo: long, obligatorio: true, max: 20 }
+      - { campo: icon,  nombre: "Impuesto al consumo",    tipo: long, obligatorio: true,  max: 20 }
+
+  "1007":
+    nombre: "Ingresos Recibidos"
+    version: 9
+    grupo_fuente: "Emitido"
+    columnas:
+      - { campo: cpt,  nombre: "Concepto",                tipo: int,  obligatorio: true,  max: 4 }
+      - { campo: tdoc, nombre: "Tipo Documento",          tipo: int,  obligatorio: true,  max: 2 }
+      - { campo: nid,  nombre: "Numero Identificacion",   tipo: str,  obligatorio: true,  max: 20 }
+      - { campo: apl1, nombre: "Primer Apellido",         tipo: str,  obligatorio: false, max: 60 }
+      - { campo: apl2, nombre: "Segundo Apellido",        tipo: str,  obligatorio: false, max: 60 }
+      - { campo: nom1, nombre: "Primer Nombre",           tipo: str,  obligatorio: false, max: 60 }
+      - { campo: nom2, nombre: "Otros Nombres",           tipo: str,  obligatorio: false, max: 60 }
+      - { campo: raz,  nombre: "Razon Social",            tipo: str,  obligatorio: false, max: 450 }
+      - { campo: pais, nombre: "Pais",                    tipo: int,  obligatorio: true,  max: 4 }
+      - { campo: ibru, nombre: "Ingresos brutos recibidos", tipo: long, obligatorio: true, max: 18 }
+      - { campo: dred, nombre: "Devoluciones rebajas y descuentos", tipo: long, obligatorio: true, max: 18 }
+
+  "5247":
+    nombre: "Pagos y retenciones en contratos colaboracion empresarial"
+    version: 1
+    grupo_fuente: "Recibido"
+    columnas:
+      - { campo: tcon,   nombre: "Tipo Contrato",          tipo: int,  obligatorio: true,  max: 2 }
+      - { campo: cpt,    nombre: "Concepto",               tipo: int,  obligatorio: true,  max: 4 }
+      - { campo: tdoc,   nombre: "Tipo Documento",         tipo: int,  obligatorio: true,  max: 2 }
+      - { campo: nid,    nombre: "Numero Identificacion",  tipo: str,  obligatorio: true,  max: 20 }
+      - { campo: apl1,   nombre: "Primer Apellido",        tipo: str,  obligatorio: false, max: 60 }
+      - { campo: apl2,   nombre: "Segundo Apellido",       tipo: str,  obligatorio: false, max: 60 }
+      - { campo: nom1,   nombre: "Primer Nombre",          tipo: str,  obligatorio: false, max: 60 }
+      - { campo: nom2,   nombre: "Otros Nombres",          tipo: str,  obligatorio: false, max: 60 }
+      - { campo: raz,    nombre: "Razon Social",           tipo: str,  obligatorio: false, max: 450 }
+      - { campo: dir,    nombre: "Direccion",              tipo: str,  obligatorio: false, max: 200 }
+      - { campo: dpto,   nombre: "Codigo Departamento",    tipo: int,  obligatorio: false, max: 2 }
+      - { campo: mun,    nombre: "Codigo Municipio",       tipo: int,  obligatorio: false, max: 3 }
+      - { campo: pais,   nombre: "Pais",                   tipo: int,  obligatorio: true,  max: 4 }
+      - { campo: pago,   nombre: "Pago o Abono en cuenta", tipo: long, obligatorio: true,  max: 18 }
+      - { campo: ivam,   nombre: "IVA mayor valor",        tipo: long, obligatorio: true,  max: 18 }
+      - { campo: reprar, nombre: "Retencion Renta practicada", tipo: long, obligatorio: true, max: 18 }
+      - { campo: rasre,  nombre: "Retencion Renta asumida", tipo: long, obligatorio: true,  max: 18 }
+      - { campo: repric, nombre: "Retencion IVA Regimen Comun", tipo: long, obligatorio: true, max: 18 }
+      - { campo: rasnod, nombre: "Retencion IVA no domiciliados", tipo: long, obligatorio: true, max: 18 }
+      - { campo: idfi,   nombre: "Identificacion fideicomiso", tipo: str, obligatorio: false, max: 14 }
+      - { campo: tdopa,  nombre: "Tipo Documento participante", tipo: int, obligatorio: true, max: 2 }
+      - { campo: nidpa,  nombre: "Identificacion participante", tipo: str, obligatorio: true, max: 20 }
+
+  "5248":
+    nombre: "Ingresos en contratos colaboracion empresarial"
+    version: 1
+    grupo_fuente: "Emitido"
+    columnas:
+      - { campo: tcon,  nombre: "Tipo Contrato",          tipo: int,  obligatorio: true,  max: 2 }
+      - { campo: cpt,   nombre: "Concepto",               tipo: int,  obligatorio: true,  max: 4 }
+      - { campo: tdoc,  nombre: "Tipo Documento",         tipo: int,  obligatorio: true,  max: 2 }
+      - { campo: nid,   nombre: "Numero Identificacion",  tipo: str,  obligatorio: true,  max: 20 }
+      - { campo: apl1,  nombre: "Primer Apellido",        tipo: str,  obligatorio: false, max: 60 }
+      - { campo: apl2,  nombre: "Segundo Apellido",       tipo: str,  obligatorio: false, max: 60 }
+      - { campo: nom1,  nombre: "Primer Nombre",          tipo: str,  obligatorio: false, max: 60 }
+      - { campo: nom2,  nombre: "Otros Nombres",          tipo: str,  obligatorio: false, max: 60 }
+      - { campo: raz,   nombre: "Razon Social",           tipo: str,  obligatorio: false, max: 450 }
+      - { campo: pais,  nombre: "Pais",                   tipo: int,  obligatorio: true,  max: 4 }
+      - { campo: ibure, nombre: "Ingresos brutos recibidos", tipo: long, obligatorio: true, max: 18 }
+      - { campo: dred,  nombre: "Devoluciones rebajas y descuentos", tipo: long, obligatorio: true, max: 18 }
+      - { campo: idfi,  nombre: "Identificacion fideicomiso", tipo: str, obligatorio: false, max: 14 }
+      - { campo: tdopa, nombre: "Tipo Documento participante", tipo: int, obligatorio: true, max: 2 }
+      - { campo: nidpa, nombre: "Identificacion participante", tipo: str, obligatorio: true, max: 20 }
+
+  "5249":
+    nombre: "IVA descontable en contratos colaboracion empresarial"
+    version: 1
+    grupo_fuente: "Recibido"
+    columnas:
+      - { campo: tcon,  nombre: "Tipo Contrato",          tipo: int,  obligatorio: true,  max: 2 }
+      - { campo: tdoc,  nombre: "Tipo Documento",         tipo: int,  obligatorio: true,  max: 2 }
+      - { campo: nid,   nombre: "Numero Identificacion",  tipo: str,  obligatorio: true,  max: 20 }
+      - { campo: apl1,  nombre: "Primer Apellido",        tipo: str,  obligatorio: false, max: 60 }
+      - { campo: apl2,  nombre: "Segundo Apellido",       tipo: str,  obligatorio: false, max: 60 }
+      - { campo: nom1,  nombre: "Primer Nombre",          tipo: str,  obligatorio: false, max: 60 }
+      - { campo: nom2,  nombre: "Otros Nombres",          tipo: str,  obligatorio: false, max: 60 }
+      - { campo: raz,   nombre: "Razon Social",           tipo: str,  obligatorio: false, max: 450 }
+      - { campo: ivad,  nombre: "IVA descontable",        tipo: long, obligatorio: true,  max: 18 }
+      - { campo: ivar,  nombre: "IVA resultante por devoluciones", tipo: long, obligatorio: true, max: 18 }
+      - { campo: tdopa, nombre: "Tipo Documento participante", tipo: int, obligatorio: true, max: 2 }
+      - { campo: nidpa, nombre: "Identificacion participante", tipo: str, obligatorio: true, max: 20 }
+
+  "5250":
+    nombre: "IVA generado en contratos colaboracion empresarial"
+    version: 1
+    grupo_fuente: "Emitido"
+    columnas:
+      - { campo: tcon,  nombre: "Tipo Contrato",          tipo: int,  obligatorio: true,  max: 2 }
+      - { campo: tdoc,  nombre: "Tipo Documento",         tipo: int,  obligatorio: true,  max: 2 }
+      - { campo: nid,   nombre: "Numero Identificacion",  tipo: str,  obligatorio: true,  max: 20 }
+      - { campo: apl1,  nombre: "Primer Apellido",        tipo: str,  obligatorio: false, max: 60 }
+      - { campo: apl2,  nombre: "Segundo Apellido",       tipo: str,  obligatorio: false, max: 60 }
+      - { campo: nom1,  nombre: "Primer Nombre",          tipo: str,  obligatorio: false, max: 60 }
+      - { campo: nom2,  nombre: "Otros Nombres",          tipo: str,  obligatorio: false, max: 60 }
+      - { campo: raz,   nombre: "Razon Social",           tipo: str,  obligatorio: false, max: 450 }
+      - { campo: ivag,  nombre: "IVA generado",           tipo: long, obligatorio: true,  max: 18 }
+      - { campo: ivar,  nombre: "IVA resultante por devoluciones", tipo: long, obligatorio: true, max: 18 }
+      - { campo: imco,  nombre: "Impuesto al consumo",    tipo: long, obligatorio: true,  max: 18 }
+      - { campo: tdopa, nombre: "Tipo Documento participante", tipo: int, obligatorio: true, max: 2 }
+      - { campo: nidpa, nombre: "Identificacion participante", tipo: str, obligatorio: true, max: 20 }

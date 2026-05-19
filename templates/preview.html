@@ -1,0 +1,91 @@
+{% extends "base.html" %}
+{% block body %}
+<h1>3. Datos del informante y periodo</h1>
+<p class="muted">Archivo cargado: <strong>{{ archivo }}</strong> · {{ resumen.filas_totales }} filas · fechas {{ resumen.rango_fechas[0] }} → {{ resumen.rango_fechas[1] }}</p>
+
+<div class="box">
+  <strong>Resumen del archivo</strong>
+  <div class="row" style="margin-top:8px;">
+    <div>
+      <p class="muted">Por tipo de documento</p>
+      <table>
+        {% for k, v in resumen.por_tipo.items() %}<tr><td>{{ k }}</td><td>{{ v }}</td></tr>{% endfor %}
+      </table>
+    </div>
+    <div>
+      <p class="muted">Por grupo</p>
+      <table>
+        {% for k, v in resumen.por_grupo.items() %}<tr><td>{{ k }}</td><td>{{ v }}</td></tr>{% endfor %}
+      </table>
+    </div>
+  </div>
+</div>
+
+<form method="post" action="{{ url_for('generar') }}">
+  <h2>Informante</h2>
+  <label>NIT del informante</label>
+  <select name="nit_informante" required onchange="document.getElementById('nombre_inf').value = this.options[this.selectedIndex].dataset.nombre || '';">
+    <option value="">— seleccionar —</option>
+    {% for i in informantes %}
+      <option value="{{ i.nit }}" data-nombre="{{ i.nombre }}">{{ i.nit }} — {{ i.nombre }}</option>
+    {% endfor %}
+  </select>
+  <label>Razón social</label>
+  <input type="text" id="nombre_inf" name="nombre_informante" required>
+
+  <h2>Periodo</h2>
+  <div class="row">
+    <div>
+      <label>Año gravable</label>
+      <input type="number" name="ano_gravable" value="2025" min="2000" max="2099" required>
+    </div>
+    <div>
+      <label>Mes inicial</label>
+      <input type="number" name="mes_inicio" value="1" min="1" max="12" required>
+    </div>
+    <div>
+      <label>Mes final</label>
+      <input type="number" name="mes_fin" value="12" min="1" max="12" required>
+    </div>
+  </div>
+
+  <h2>Conceptos por defecto</h2>
+  <div class="row">
+    <div>
+      <label>Concepto 1001 (pagos)</label>
+      <input type="number" name="cpt_1001" value="5016">
+    </div>
+    <div>
+      <label>Concepto 1007 (ingresos)</label>
+      <input type="number" name="cpt_1007" value="4001">
+    </div>
+  </div>
+
+  <h2>Contrato de colaboración empresarial (opcional)</h2>
+  <label>
+    <input type="checkbox" name="es_participante"> El informante participa en un contrato de colaboración (5247-5250)
+  </label>
+  <div class="row">
+    <div>
+      <label>Tipo contrato</label>
+      <input type="number" name="tipo_contrato" value="1">
+    </div>
+    <div>
+      <label>NIT participante</label>
+      <input type="text" name="nit_participante">
+    </div>
+    <div>
+      <label>Tipo doc participante</label>
+      <input type="number" name="tdoc_participante" value="31">
+    </div>
+    <div>
+      <label>ID fideicomiso</label>
+      <input type="text" name="id_fideicomiso">
+    </div>
+  </div>
+
+  <div style="margin-top: 32px;">
+    <button type="submit" class="btn-success">Generar los 8 formatos</button>
+  </div>
+</form>
+{% endblock %}

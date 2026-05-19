@@ -1,0 +1,29 @@
+{
+  "tipos_documento": {
+    "Factura electrónica": { "signo": 1, "categoria": "factura" },
+    "Factura electronica": { "signo": 1, "categoria": "factura" },
+    "Factura electrónica de contingencia": { "signo": 1, "categoria": "factura" },
+    "Factura electronica de contingencia": { "signo": 1, "categoria": "factura" },
+    "Nota de crédito electrónica": { "signo": -1, "categoria": "nota_credito" },
+    "Nota de credito electronica": { "signo": -1, "categoria": "nota_credito" },
+    "Nota débito electrónica": { "signo": 1, "categoria": "nota_debito" },
+    "Nota debito electronica": { "signo": 1, "categoria": "nota_debito" },
+    "Documento equivalente POS": { "signo": 1, "categoria": "doc_equivalente" },
+    "Documento equivalente electrónico POS": { "signo": 1, "categoria": "doc_equivalente" },
+    "Documento soporte electrónico": { "signo": 1, "categoria": "doc_soporte" },
+    "Documento soporte electronico": { "signo": 1, "categoria": "doc_soporte" },
+    "Documento soporte con no obligados": { "signo": 1, "categoria": "doc_soporte" },
+    "Nómina electrónica": { "signo": 1, "categoria": "nomina" },
+    "Nomina electronica": { "signo": 1, "categoria": "nomina" },
+    "Nómina electrónica de ajuste": { "signo": 1, "categoria": "nomina" },
+    "Nomina electronica de ajuste": { "signo": 1, "categoria": "nomina" },
+    "Documento de nómina electrónica": { "signo": 1, "categoria": "nomina" }
+  },
+  "conceptos_por_defecto": {
+    "1001": 5016,
+    "1007": 4001,
+    "5247": 5016,
+    "5248": 4001
+  },
+  "pais_default": 169
+}

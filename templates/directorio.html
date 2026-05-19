@@ -1,0 +1,129 @@
+{% extends "base.html" %}
+{% block body %}
+<h1>Directorio de terceros</h1>
+<p class="muted">Cache local con datos enriquecidos (dirección, dpto, mun, DV) para completar el 1001 y otros formatos. <strong>{{ total }}</strong> terceros registrados.</p>
+
+<div class="box">
+  <strong>1. Importar XML UBL de facturas (fuente principal)</strong>
+  <p class="muted">Hay 3 maneras (la más rápida es la C: indicar la ruta local porque la app está corriendo en tu propio PC y no necesita subir nada por HTTP).</p>
+
+  <details open style="margin-top: 8px;">
+    <summary><strong>A) Subir archivos sueltos o ZIP</strong></summary>
+    <form method="post" action="{{ url_for('importar_directorio') }}" enctype="multipart/form-data" style="margin-top:8px;">
+      <input type="file" name="xmls" multiple accept=".xml,.zip">
+      <p class="muted" style="margin-top:6px;">Si comprimes tu árbol de carpetas en un ZIP, la app lo descomprime y lo recorre completo (subcarpetas incluidas).</p>
+      <button type="submit">Importar</button>
+    </form>
+  </details>
+
+  <details style="margin-top: 16px;">
+    <summary><strong>B) Subir una carpeta completa con subcarpetas</strong> (Chrome / Edge)</summary>
+    <form method="post" action="{{ url_for('importar_directorio') }}" enctype="multipart/form-data" style="margin-top:8px;">
+      <input type="file" name="xmls" multiple webkitdirectory directory mozdirectory>
+      <p class="muted" style="margin-top:6px;">Selecciona la carpeta raíz; el navegador subirá todos los XML respetando la estructura. <strong>Lento para miles de archivos</strong> porque cada uno se sube por HTTP.</p>
+      <button type="submit">Importar carpeta</button>
+    </form>
+  </details>
+
+  <details style="margin-top: 16px;">
+    <summary><strong>C) Indicar ruta local del PC</strong> (recomendado para miles de archivos)</summary>
+    <form method="post" action="{{ url_for('importar_ruta_local') }}" style="margin-top:8px;">
+      <label>Ruta de la carpeta en tu PC</label>
+      <input type="text" name="ruta" placeholder="C:\Users\dubyc\Documents\XML 2024" style="font-family: monospace;">
+      <p class="muted" style="margin-top:6px;">La app lee directamente del disco (no hay upload). Recorre todas las subcarpetas y también los ZIPs que encuentre. Acepta rutas con espacios.</p>
+      <button type="submit">Importar desde ruta</button>
+    </form>
+  </details>
+</div>
+
+<div class="box">
+  <strong>2. Enriquecer faltantes desde RUES</strong>
+  {% if tiene_df %}
+    <p class="muted">El archivo cargado tiene <strong>{{ faltantes|length }}</strong> NITs que aún no están en el directorio.</p>
+    {% if faltantes %}
+      <form method="post" action="{{ url_for('enriquecer_directorio') }}">
+        <label><input type="checkbox" name="forzar"> Re-intentar también los que ya fallaron</label>
+        <div style="margin-top:12px;">
+          <button type="submit">Consultar RUES ({{ faltantes|length }} NITs)</button>
+        </div>
+        <p class="muted" style="margin-top:8px;">⚠ El portal RUES es una SPA y los endpoints públicos son inestables. Muchas consultas pueden no encontrar resultados. Si falla, edita manualmente abajo.</p>
+      </form>
+    {% endif %}
+  {% else %}
+    <p class="muted">Sube primero el XLSX MUISCA en la <a href="{{ url_for('index') }}">pantalla inicial</a> para detectar NITs faltantes.</p>
+  {% endif %}
+</div>
+
+<div class="box">
+  <strong>3. Agregar / editar tercero manualmente</strong>
+  <form method="post" action="{{ url_for('editar_tercero') }}">
+    <div class="row">
+      <div><label>NIT</label><input type="text" name="nid" required></div>
+      <div><label>DV</label><input type="number" name="dv" min="0" max="9"></div>
+      <div><label>País (default 169=Colombia)</label><input type="number" name="pais" value="169"></div>
+    </div>
+    <label>Razón social (si es empresa)</label>
+    <input type="text" name="raz">
+    <p class="muted" style="margin-top:8px;">Si es persona natural deja vacío "raz" y llena apellidos/nombres:</p>
+    <div class="row">
+      <div><label>Apellido 1</label><input type="text" name="apl1"></div>
+      <div><label>Apellido 2</label><input type="text" name="apl2"></div>
+      <div><label>Nombre 1</label><input type="text" name="nom1"></div>
+      <div><label>Nombre 2</label><input type="text" name="nom2"></div>
+    </div>
+    <label>Dirección</label>
+    <input type="text" name="dir" maxlength="200">
+    <div class="row">
+      <div><label>Cód. departamento</label><input type="number" name="dpto" min="0" max="99"></div>
+      <div><label>Cód. municipio</label><input type="number" name="mun" min="0" max="999"></div>
+    </div>
+    <div style="margin-top:16px;">
+      <button type="submit">Guardar</button>
+    </div>
+  </form>
+</div>
+
+<div class="box">
+  <strong>4. Limpiar directorio</strong>
+  <form method="post" action="{{ url_for('limpiar_directorio') }}" onsubmit="return confirm('¿Borrar todo el directorio?')">
+    <button type="submit" class="btn-secondary">Borrar todo</button>
+  </form>
+</div>
+
+{% if terceros %}
+<h2>Contenido ({{ total }})</h2>
+<table>
+  <thead>
+    <tr>
+      <th>NIT</th><th>DV</th><th>Razón / Nombre</th><th>Dirección</th><th>Dpto</th><th>Mun</th><th>País</th><th></th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for nid, t in terceros.items() %}
+    <tr>
+      <td><code>{{ nid }}</code></td>
+      <td>{{ t.dv if t.dv is not none else '' }}</td>
+      <td>
+        {% if t.raz %}{{ t.raz }}
+        {% else %}{{ t.apl1 or '' }} {{ t.apl2 or '' }} {{ t.nom1 or '' }} {{ t.nom2 or '' }}{% endif %}
+      </td>
+      <td>{{ t.dir or '' }}</td>
+      <td>{{ t.dpto or '' }}</td>
+      <td>{{ t.mun or '' }}</td>
+      <td>{{ t.pais or '' }}</td>
+      <td>
+        <form method="post" action="{{ url_for('eliminar_tercero') }}" style="display:inline">
+          <input type="hidden" name="nid" value="{{ nid }}">
+          <button type="submit" class="btn-secondary" style="padding:4px 10px;font-size:12px;" onclick="return confirm('¿Eliminar {{ nid }}?')">✕</button>
+        </form>
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endif %}
+
+<div style="margin-top: 24px;">
+  <a class="btn btn-secondary" href="{{ url_for('index') }}">← Volver</a>
+</div>
+{% endblock %}

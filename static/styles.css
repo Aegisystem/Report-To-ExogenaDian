@@ -1,0 +1,55 @@
+* { box-sizing: border-box; }
+body {
+  font-family: -apple-system, "Segoe UI", Roboto, sans-serif;
+  background: #f5f7fa;
+  color: #1a202c;
+  margin: 0;
+  padding: 0;
+}
+.container {
+  max-width: 960px;
+  margin: 32px auto;
+  background: white;
+  border-radius: 12px;
+  padding: 32px;
+  box-shadow: 0 2px 8px rgba(0,0,0,.06);
+}
+h1 { color: #1e3a8a; margin-top: 0; }
+h2 { color: #1e3a8a; border-bottom: 2px solid #e2e8f0; padding-bottom: 8px; }
+.logo { color: #c0392b; font-weight: bold; font-size: 14px; letter-spacing: 1px; }
+.subtitle { color: #6b7280; font-size: 14px; margin-top: -8px; }
+label { display: block; font-weight: 600; margin: 16px 0 6px; color: #374151; }
+input[type=text], input[type=number], select, input[type=file] {
+  width: 100%; padding: 10px 12px; border: 1px solid #d1d5db; border-radius: 8px;
+  font-size: 14px; font-family: inherit;
+}
+input[type=text]:focus, input[type=number]:focus, select:focus {
+  outline: none; border-color: #1e40af; box-shadow: 0 0 0 3px rgba(30,64,175,.1);
+}
+button, .btn {
+  display: inline-block; background: #1e40af; color: white;
+  padding: 12px 24px; border: none; border-radius: 8px;
+  font-size: 14px; font-weight: 600; cursor: pointer;
+  text-decoration: none;
+}
+button:hover, .btn:hover { background: #1e3a8a; }
+.btn-secondary { background: #6b7280; }
+.btn-secondary:hover { background: #4b5563; }
+.btn-success { background: #047857; }
+.btn-success:hover { background: #065f46; }
+table { width: 100%; border-collapse: collapse; margin: 16px 0; }
+th, td { text-align: left; padding: 8px 12px; border-bottom: 1px solid #e5e7eb; font-size: 14px; }
+th { background: #f9fafb; color: #374151; font-weight: 600; }
+.flash-error { background: #fef2f2; color: #991b1b; padding: 12px; border-radius: 8px; margin-bottom: 16px; }
+.flash-ok { background: #f0fdf4; color: #166534; padding: 12px; border-radius: 8px; margin-bottom: 16px; }
+.row { display: flex; gap: 16px; }
+.row > * { flex: 1; }
+.box { background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 8px; padding: 16px; margin: 16px 0; }
+.muted { color: #6b7280; font-size: 13px; }
+.tag {
+  display: inline-block; background: #dbeafe; color: #1e40af;
+  padding: 2px 10px; border-radius: 999px; font-size: 12px; font-weight: 600;
+}
+.tag.danger { background: #fee2e2; color: #991b1b; }
+.tag.success { background: #dcfce7; color: #166534; }
+.tag.warn { background: #fef3c7; color: #92400e; }

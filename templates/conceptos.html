@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+{% block body %}
+<h1>2. Tipos de documento nuevos</h1>
+<p class="muted">El archivo contiene tipos de documento que aún no están en el catálogo. Indica cómo tratarlos. Quedarán guardados para próximos archivos.</p>
+
+<form method="post" action="{{ url_for('conceptos_post') }}">
+  <table>
+    <thead>
+      <tr>
+        <th>Tipo de documento</th>
+        <th>Categoría</th>
+        <th>Signo</th>
+      </tr>
+    </thead>
+    <tbody>
+    {% for t in tipos %}
+      <tr>
+        <td><strong>{{ t }}</strong></td>
+        <td>
+          <select name="cat_{{ t }}">
+            {% for c in categorias %}
+              <option value="{{ c }}">{{ c }}</option>
+            {% endfor %}
+          </select>
+        </td>
+        <td>
+          <select name="signo_{{ t }}">
+            <option value="1">+1 (suma)</option>
+            <option value="-1">-1 (resta)</option>
+          </select>
+        </td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  <p class="muted">Categorías: <code>factura, nota_credito, nota_debito, doc_equivalente, doc_soporte, ignorar</code>. Las notas crédito normalmente son <code>nota_credito</code> con signo <code>-1</code>.</p>
+  <button type="submit">Guardar y continuar</button>
+</form>
+{% endblock %}

@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% block body %}
+<h1>1. Cargar archivo MUISCA</h1>
+<p class="muted">Selecciona el XLSX exportado del portal de facturación electrónica de la DIAN.</p>
+
+<form method="post" action="{{ url_for('cargar') }}" enctype="multipart/form-data">
+  <label>Archivo XLSX</label>
+  <input type="file" name="archivo" accept=".xlsx" required>
+  <div style="margin-top: 24px;">
+    <button type="submit">Cargar y continuar</button>
+    <a class="btn btn-secondary" href="{{ url_for('ver_directorio') }}" style="margin-left:8px;">Directorio de terceros ({{ terceros_cache }})</a>
+  </div>
+</form>
+
+<div class="box" style="margin-top:32px;">
+  <strong>¿Qué hace esta app?</strong>
+  <p class="muted">Lee tu archivo MUISCA, detecta automáticamente el NIT del informante (a partir de la columna <em>Grupo</em>) y genera los 8 archivos XLSX listos para cargar en el Prevalidador DIAN, además de un consolidado con todas las hojas en un único archivo.</p>
+  <p class="muted">Si aparece un tipo de documento nuevo (distinto de Factura, Nota Crédito, etc.), te preguntará cómo tratarlo y lo guardará para próximos archivos.</p>
+  <p class="muted"><strong>Documento soporte</strong>: Recibido = ingreso (1006/1007). Emitido = gasto (1001/1005). <strong>Nómina electrónica</strong>: se ignora.</p>
+  <p class="muted"><strong>Directorio de terceros</strong>: importa XML UBL de tus facturas para enriquecer con dirección, departamento, municipio y DV de los terceros.</p>
+</div>
+{% endblock %}
