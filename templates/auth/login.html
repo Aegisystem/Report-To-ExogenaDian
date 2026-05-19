@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{% block body %}
+<h1>Iniciar sesión</h1>
+<form method="post" action="{{ url_for('auth.login_post') }}">
+  <label>Email</label>
+  <input type="email" name="email" required autofocus>
+  <label>Contraseña</label>
+  <input type="password" name="password" required>
+  <label style="font-weight: normal; margin-top: 16px;">
+    <input type="checkbox" name="remember"> Recordarme
+  </label>
+  <div style="margin-top: 24px;">
+    <button type="submit">Entrar</button>
+    <a class="btn btn-secondary" href="{{ url_for('auth.registro') }}" style="margin-left:8px;">Crear cuenta</a>
+  </div>
+</form>
+{% endblock %}

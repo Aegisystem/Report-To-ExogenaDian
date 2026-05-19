@@ -1,86 +1,171 @@
-"""Catálogo persistente de tipos de documento y reglas de mapeo a formatos.
+"""Catálogo de tipos de documento y reglas de mapeo a formatos (Postgres).
 
-Cada Tipo de documento del MUISCA tiene:
-  - categoria: factura / nota_credito / nota_debito / doc_equivalente /
-               doc_soporte / nomina / ignorar
-  - signo:     +1 (suma) o -1 (resta) en los acumulados
+Cada usuario tiene su propio catálogo + un catálogo "global" (usuario_id NULL)
+con los defaults del sistema. El lookup prefiere el del usuario y cae al global.
 
-A qué formato va cada fila depende de (categoria, grupo):
-
-  factura/equivalente/nota_credito/nota_debito:
-    Recibido -> 1001, 1005 (y 5247, 5249 si participa en colab)
-    Emitido  -> 1006, 1007 (y 5248, 5250 si participa en colab)
-
-  doc_soporte (lo emite el comprador al comprar a no obligados):
-    Recibido -> 1006, 1007 (alguien me lo emitió -> me compró -> es mi ingreso)
-    Emitido  -> 1001, 1005 (yo lo emití -> compré a no obligado -> es mi gasto)
-
-  nomina / ignorar:
-    No se reporta en ningún formato.
+API pública compatible con la versión JSON:
+  - tipos_conocidos() -> set[str]
+  - registrar_tipo(nombre, categoria, signo=1)
+  - categoria(nombre) -> str | None
+  - signo(nombre) -> int
+  - concepto_default(formato) -> int
+  - pais_default() -> int
+  - formatos_para(cat, grupo, incluir_colaboracion=False) -> list[str]
+  - regla_para_formato(formato) -> set[(cat, grupo)]
 """
 from __future__ import annotations
 
-import json
-from pathlib import Path
-from typing import Any
+from sqlalchemy import or_
+
+from db import ConceptoDefault, TipoDocumento, db, usuario_actual_id
 
 
-_RUTA = Path(__file__).resolve().parent.parent / "config" / "conceptos.json"
-
-
-def cargar() -> dict[str, Any]:
-    if not _RUTA.exists():
-        return {"tipos_documento": {}, "conceptos_por_defecto": {}, "pais_default": 169}
-    with open(_RUTA, "r", encoding="utf-8") as f:
-        return json.load(f)
-
-
-def guardar(data: dict[str, Any]) -> None:
-    _RUTA.parent.mkdir(parents=True, exist_ok=True)
-    with open(_RUTA, "w", encoding="utf-8") as f:
-        json.dump(data, f, indent=2, ensure_ascii=False)
-
-
-def tipos_conocidos() -> set[str]:
-    return set(cargar().get("tipos_documento", {}).keys())
-
-
-def registrar_tipo(nombre: str, categoria: str, signo: int = 1) -> None:
-    data = cargar()
-    data.setdefault("tipos_documento", {})[nombre] = {"signo": signo, "categoria": categoria}
-    guardar(data)
-
-
-def categoria(nombre: str) -> str | None:
-    info = cargar().get("tipos_documento", {}).get(nombre)
-    return info["categoria"] if info else None
-
-
-def signo(nombre: str) -> int:
-    info = cargar().get("tipos_documento", {}).get(nombre)
-    return info["signo"] if info else 1
-
-
-def concepto_default(formato: str) -> int:
-    return int(cargar().get("conceptos_por_defecto", {}).get(formato, 0))
-
-
-def pais_default() -> int:
-    return int(cargar().get("pais_default", 169))
-
+# ---------------- catálogo ----------------
 
 CATEGORIAS_VALIDAS = [
-    "factura",
-    "nota_credito",
-    "nota_debito",
-    "doc_equivalente",
-    "doc_soporte",
-    "nomina",
-    "ignorar",
+    "factura", "nota_credito", "nota_debito",
+    "doc_equivalente", "doc_soporte",
+    "nomina", "ignorar",
 ]
 
 
-# (categoria, grupo) -> formatos a los que aporta
+_DEFAULTS_GLOBALES_TIPOS = [
+    ("Factura electrónica", "factura", 1),
+    ("Factura electronica", "factura", 1),
+    ("Factura electrónica de contingencia", "factura", 1),
+    ("Factura electronica de contingencia", "factura", 1),
+    ("Nota de crédito electrónica", "nota_credito", -1),
+    ("Nota de credito electronica", "nota_credito", -1),
+    ("Nota débito electrónica", "nota_debito", 1),
+    ("Nota debito electronica", "nota_debito", 1),
+    ("Documento equivalente POS", "doc_equivalente", 1),
+    ("Documento equivalente electrónico POS", "doc_equivalente", 1),
+    ("Documento soporte electrónico", "doc_soporte", 1),
+    ("Documento soporte electronico", "doc_soporte", 1),
+    ("Documento soporte con no obligados", "doc_soporte", 1),
+    ("Nómina electrónica", "nomina", 1),
+    ("Nomina electronica", "nomina", 1),
+    ("Nómina electrónica de ajuste", "nomina", 1),
+    ("Nomina electronica de ajuste", "nomina", 1),
+    ("Documento de nómina electrónica", "nomina", 1),
+]
+
+_DEFAULTS_CONCEPTOS = {
+    "1001": 5016,
+    "1007": 4001,
+    "5247": 5016,
+    "5248": 4001,
+}
+
+PAIS_DEFAULT = 169
+
+
+def sembrar_catalogo_global() -> None:
+    """Inserta los tipos globales si no existen. Idempotente."""
+    for nombre, categoria, signo in _DEFAULTS_GLOBALES_TIPOS:
+        existe = (
+            db.session.query(TipoDocumento)
+            .filter(TipoDocumento.usuario_id.is_(None), TipoDocumento.nombre == nombre)
+            .first()
+        )
+        if not existe:
+            db.session.add(TipoDocumento(usuario_id=None, nombre=nombre, categoria=categoria, signo=signo))
+    db.session.commit()
+
+
+def _query_tipo(nombre: str, usuario_id: int | None = None):
+    """Busca un tipo por nombre. Prefiere el del usuario, cae al global."""
+    if usuario_id is None:
+        try:
+            usuario_id = usuario_actual_id()
+        except Exception:
+            usuario_id = None
+
+    q = db.session.query(TipoDocumento).filter(TipoDocumento.nombre == nombre)
+    if usuario_id is not None:
+        q = q.filter(or_(TipoDocumento.usuario_id == usuario_id, TipoDocumento.usuario_id.is_(None)))
+        # Prioriza el del usuario
+        return q.order_by(TipoDocumento.usuario_id.is_(None)).first()
+    return q.filter(TipoDocumento.usuario_id.is_(None)).first()
+
+
+def tipos_conocidos() -> set[str]:
+    """Conjunto de nombres conocidos: tipos del usuario + globales."""
+    try:
+        uid = usuario_actual_id()
+    except Exception:
+        uid = None
+
+    q = db.session.query(TipoDocumento.nombre)
+    if uid is not None:
+        q = q.filter(or_(TipoDocumento.usuario_id == uid, TipoDocumento.usuario_id.is_(None)))
+    else:
+        q = q.filter(TipoDocumento.usuario_id.is_(None))
+    return {row[0] for row in q}
+
+
+def registrar_tipo(nombre: str, categoria: str, signo: int = 1) -> None:
+    """Registra/actualiza un tipo para el usuario actual."""
+    uid = usuario_actual_id()
+    existente = (
+        db.session.query(TipoDocumento)
+        .filter_by(usuario_id=uid, nombre=nombre)
+        .first()
+    )
+    if existente:
+        existente.categoria = categoria
+        existente.signo = signo
+    else:
+        db.session.add(TipoDocumento(usuario_id=uid, nombre=nombre, categoria=categoria, signo=signo))
+    db.session.commit()
+
+
+def categoria(nombre: str) -> str | None:
+    t = _query_tipo(nombre)
+    return t.categoria if t else None
+
+
+def signo(nombre: str) -> int:
+    t = _query_tipo(nombre)
+    return t.signo if t else 1
+
+
+def concepto_default(formato: str) -> int:
+    try:
+        uid = usuario_actual_id()
+    except Exception:
+        return int(_DEFAULTS_CONCEPTOS.get(formato, 0))
+
+    fila = (
+        db.session.query(ConceptoDefault)
+        .filter_by(usuario_id=uid, formato=formato)
+        .first()
+    )
+    if fila:
+        return int(fila.concepto)
+    return int(_DEFAULTS_CONCEPTOS.get(formato, 0))
+
+
+def set_concepto_default(formato: str, concepto: int) -> None:
+    uid = usuario_actual_id()
+    fila = (
+        db.session.query(ConceptoDefault)
+        .filter_by(usuario_id=uid, formato=formato)
+        .first()
+    )
+    if fila:
+        fila.concepto = int(concepto)
+    else:
+        db.session.add(ConceptoDefault(usuario_id=uid, formato=formato, concepto=int(concepto)))
+    db.session.commit()
+
+
+def pais_default() -> int:
+    return PAIS_DEFAULT
+
+
+# ---------------- reglas de mapeo (estáticas) ----------------
+
 _REGLAS_BASE: dict[tuple[str, str], list[str]] = {
     ("factura", "Recibido"):         ["1001", "1005"],
     ("factura", "Emitido"):          ["1006", "1007"],
@@ -90,17 +175,14 @@ _REGLAS_BASE: dict[tuple[str, str], list[str]] = {
     ("nota_credito", "Emitido"):     ["1006", "1007"],
     ("doc_equivalente", "Recibido"): ["1001", "1005"],
     ("doc_equivalente", "Emitido"):  ["1006", "1007"],
-    # Documento soporte invertido: lo emite el comprador
     ("doc_soporte", "Recibido"):     ["1006", "1007"],
     ("doc_soporte", "Emitido"):      ["1001", "1005"],
-    # Nómina y "ignorar" no van a ningún lado
     ("nomina", "Recibido"):          [],
     ("nomina", "Emitido"):           [],
     ("ignorar", "Recibido"):         [],
     ("ignorar", "Emitido"):          [],
 }
 
-# Cuando el informante participa en contrato de colaboración, además aportan a:
 _REGLAS_COLABORACION: dict[tuple[str, str], list[str]] = {
     ("factura", "Recibido"):         ["5247", "5249"],
     ("factura", "Emitido"):          ["5248", "5250"],
@@ -121,18 +203,16 @@ def formatos_para(cat: str | None, grupo: str, incluir_colaboracion: bool = Fals
     g = (grupo or "").strip()
     base = _REGLAS_BASE.get((cat, g), [])
     if incluir_colaboracion:
-        extra = _REGLAS_COLABORACION.get((cat, g), [])
-        return base + extra
+        return base + _REGLAS_COLABORACION.get((cat, g), [])
     return base
 
 
 def regla_para_formato(formato: str) -> set[tuple[str, str]]:
-    """Devuelve el conjunto de (categoria, grupo) que aportan a un formato dado."""
     out = set()
-    for (cat, grp), formatos in _REGLAS_BASE.items():
+    for (c, g), formatos in _REGLAS_BASE.items():
         if formato in formatos:
-            out.add((cat, grp))
-    for (cat, grp), formatos in _REGLAS_COLABORACION.items():
+            out.add((c, g))
+    for (c, g), formatos in _REGLAS_COLABORACION.items():
         if formato in formatos:
-            out.add((cat, grp))
+            out.add((c, g))
     return out

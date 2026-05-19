@@ -7,7 +7,16 @@
 </head>
 <body>
   <div class="container">
-    <div class="logo">EXÓGENA DIAN</div>
+    <div class="topbar">
+      <div class="logo">EXÓGENA DIAN</div>
+      {% if current_user.is_authenticated %}
+        <div class="userbox">
+          <span class="muted">{{ current_user.email }}</span>
+          <a class="btn btn-secondary btn-sm" href="{{ url_for('ver_directorio') }}">Directorio</a>
+          <a class="btn btn-secondary btn-sm" href="{{ url_for('auth.logout') }}">Salir</a>
+        </div>
+      {% endif %}
+    </div>
     <p class="subtitle">Conversor MUISCA → Formatos 1001, 1005, 1006, 1007, 5247-5250</p>
     {% with msgs = get_flashed_messages(with_categories=true) %}
       {% for cat, msg in msgs %}

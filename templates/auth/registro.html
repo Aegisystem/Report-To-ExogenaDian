@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{% block body %}
+<h1>Crear cuenta</h1>
+<p class="muted">El primer usuario que se registra queda como administrador del sistema.</p>
+<form method="post" action="{{ url_for('auth.registro_post') }}">
+  <label>Nombre</label>
+  <input type="text" name="nombre">
+  <label>Email</label>
+  <input type="email" name="email" required>
+  <label>Contraseña (mínimo 8 caracteres)</label>
+  <input type="password" name="password" minlength="8" required>
+  <div style="margin-top: 24px;">
+    <button type="submit">Crear cuenta</button>
+    <a class="btn btn-secondary" href="{{ url_for('auth.login') }}" style="margin-left:8px;">Ya tengo cuenta</a>
+  </div>
+</form>
+{% endblock %}

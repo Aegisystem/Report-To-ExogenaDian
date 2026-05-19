@@ -1,0 +1,25 @@
+services:
+  - type: web
+    name: exogena-dian
+    runtime: python
+    plan: starter
+    region: oregon
+    branch: main
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn app:app --bind 0.0.0.0:$PORT --workers 2 --timeout 120
+    autoDeploy: true
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.12.6
+      - key: SECRET_KEY
+        generateValue: true
+      - key: DATABASE_URL
+        sync: false   # tú la pegas desde Neon en el dashboard
+      - key: PERMITIR_REGISTRO_PUBLICO
+        value: "false"
+      - key: PERMITIR_RUTA_LOCAL
+        value: "false"
+    disk:
+      name: data
+      mountPath: /opt/render/project/src/output
+      sizeGB: 1

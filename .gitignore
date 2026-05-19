@@ -1,0 +1,33 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+.venv/
+venv/
+env/
+
+# Editor
+.vscode/
+.idea/
+*.swp
+
+# Datos sensibles
+.env
+.env.local
+*.db
+*.sqlite
+*.sqlite3
+
+# Datos del usuario (no se versiona el directorio de terceros)
+config/directorio.json
+config/directorio_no_encontrados.json
+
+# Trabajo en curso
+uploads/
+output/
+*.parquet
+
+# OS
+.DS_Store
+Thumbs.db

@@ -17,6 +17,9 @@ body {
 h1 { color: #1e3a8a; margin-top: 0; }
 h2 { color: #1e3a8a; border-bottom: 2px solid #e2e8f0; padding-bottom: 8px; }
 .logo { color: #c0392b; font-weight: bold; font-size: 14px; letter-spacing: 1px; }
+.topbar { display: flex; justify-content: space-between; align-items: center; }
+.userbox { display: flex; gap: 8px; align-items: center; }
+.btn-sm { padding: 6px 12px; font-size: 12px; }
 .subtitle { color: #6b7280; font-size: 14px; margin-top: -8px; }
 label { display: block; font-weight: 600; margin: 16px 0 6px; color: #374151; }
 input[type=text], input[type=number], select, input[type=file] {
