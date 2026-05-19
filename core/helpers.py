@@ -107,6 +107,27 @@ def normalizar_nit(nit) -> str:
     return re.sub(r"\D", "", str(nit))
 
 
+def _normalizar_codigo_dane(valor, ancho: int, tomar: str) -> str:
+    if valor is None:
+        return ""
+    digits = re.sub(r"\D", "", str(valor).strip())
+    if not digits or set(digits) == {"0"}:
+        return ""
+    if len(digits) <= ancho:
+        return digits.zfill(ancho)
+    if tomar == "inicio":
+        return digits[:ancho]
+    return digits[-ancho:]
+
+
+def normalizar_departamento(valor) -> str:
+    return _normalizar_codigo_dane(valor, 2, "inicio")
+
+
+def normalizar_municipio(valor) -> str:
+    return _normalizar_codigo_dane(valor, 3, "fin")
+
+
 def es_persona_natural(tdoc: int) -> bool:
     return tdoc in (11, 12, 13, 21, 22, 41, 42, 47, 48, 91)
 

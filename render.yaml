@@ -19,7 +19,3 @@ services:
         value: "false"
       - key: PERMITIR_RUTA_LOCAL
         value: "false"
-    disk:
-      name: data
-      mountPath: /opt/render/project/src/output
-      sizeGB: 1

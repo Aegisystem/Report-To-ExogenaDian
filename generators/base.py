@@ -168,9 +168,9 @@ class BaseFormato:
         if "dir" in campos:
             info["dir"] = (cache or {}).get("dir", "") or ""
         if "dpto" in campos:
-            info["dpto"] = (cache or {}).get("dpto") or 0
+            info["dpto"] = helpers.normalizar_departamento((cache or {}).get("dpto"))
         if "mun" in campos:
-            info["mun"] = (cache or {}).get("mun") or 0
+            info["mun"] = helpers.normalizar_municipio((cache or {}).get("mun"))
         return info
 
     def _suma_neta(self, sub: pd.DataFrame, columna: str) -> float:

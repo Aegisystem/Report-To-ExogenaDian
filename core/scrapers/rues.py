@@ -21,6 +21,8 @@ from typing import Any
 
 import requests
 
+from core import helpers
+
 
 _HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
@@ -108,12 +110,12 @@ def _parsear_respuesta(data: Any) -> dict[str, Any] | None:
     # Códigos DANE pueden venir como 5 dígitos (DDMMM) o por separado
     if mun_str and mun_str.isdigit():
         if len(mun_str) == 5:
-            out["dpto"] = int(mun_str[:2])
-            out["mun"] = int(mun_str[2:])
+            out["dpto"] = helpers.normalizar_departamento(mun_str)
+            out["mun"] = helpers.normalizar_municipio(mun_str)
         elif len(mun_str) <= 3:
-            out["mun"] = int(mun_str)
+            out["mun"] = helpers.normalizar_municipio(mun_str)
     if dpto_str and dpto_str.isdigit() and "dpto" not in out:
-        out["dpto"] = int(dpto_str[:2])
+        out["dpto"] = helpers.normalizar_departamento(dpto_str)
 
     out["pais"] = 169
     out["_fuente"] = "RUES"

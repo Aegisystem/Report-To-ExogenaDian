@@ -14,8 +14,8 @@ formatos:
       - { campo: nom2,  nombre: "Otros Nombres",                                    tipo: str,  obligatorio: false, max: 60 }
       - { campo: raz,   nombre: "Razon Social",                                     tipo: str,  obligatorio: false, max: 450 }
       - { campo: dir,   nombre: "Direccion",                                        tipo: str,  obligatorio: false, max: 200 }
-      - { campo: dpto,  nombre: "Codigo Departamento",                              tipo: int,  obligatorio: false, max: 2 }
-      - { campo: mun,   nombre: "Codigo Municipio",                                 tipo: int,  obligatorio: false, max: 3 }
+      - { campo: dpto,  nombre: "Codigo Departamento",                              tipo: str,  obligatorio: false, max: 2 }
+      - { campo: mun,   nombre: "Codigo Municipio",                                 tipo: str,  obligatorio: false, max: 3 }
       - { campo: pais,  nombre: "Pais",                                             tipo: int,  obligatorio: true,  max: 4 }
       - { campo: pago,  nombre: "Pago o Abono en cuenta",                           tipo: long, obligatorio: true,  max: 18 }
       - { campo: pnded, nombre: "Pago no deducible",                                tipo: long, obligatorio: true,  max: 18 }
@@ -92,8 +92,8 @@ formatos:
       - { campo: nom2,   nombre: "Otros Nombres",          tipo: str,  obligatorio: false, max: 60 }
       - { campo: raz,    nombre: "Razon Social",           tipo: str,  obligatorio: false, max: 450 }
       - { campo: dir,    nombre: "Direccion",              tipo: str,  obligatorio: false, max: 200 }
-      - { campo: dpto,   nombre: "Codigo Departamento",    tipo: int,  obligatorio: false, max: 2 }
-      - { campo: mun,    nombre: "Codigo Municipio",       tipo: int,  obligatorio: false, max: 3 }
+      - { campo: dpto,   nombre: "Codigo Departamento",    tipo: str,  obligatorio: false, max: 2 }
+      - { campo: mun,    nombre: "Codigo Municipio",       tipo: str,  obligatorio: false, max: 3 }
       - { campo: pais,   nombre: "Pais",                   tipo: int,  obligatorio: true,  max: 4 }
       - { campo: pago,   nombre: "Pago o Abono en cuenta", tipo: long, obligatorio: true,  max: 18 }
       - { campo: ivam,   nombre: "IVA mayor valor",        tipo: long, obligatorio: true,  max: 18 }

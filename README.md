@@ -7,7 +7,7 @@ App web que convierte exportaciones MUISCA de facturación electrónica a los fo
 - Sube tu XLSX exportado del portal MUISCA.
 - Detecta automáticamente el informante (Recibido → Receptor, Emitido → Emisor).
 - Aplica reglas: notas crédito netean, doc. soporte recibido = ingreso/emitido = gasto, nómina electrónica se ignora.
-- Genera los 8 formatos en un único XLSX (una hoja por formato + índice).
+- Genera los 8 formatos en un único XLSX (una hoja por formato + índice) y lo entrega como descarga inmediata sin guardar el archivo de salida en el servidor.
 - Directorio de terceros: importa XMLs UBL o XMLs del Prevalidador para completar dirección/dpto/mun/DV.
 - Web scraping de RUES como fallback (frágil, mejor esfuerzo).
 - Multi-usuario con login (cada contador ve su propia info).
@@ -163,15 +163,13 @@ exogena_dian/
 │   ├── index.html
 │   ├── conceptos.html
 │   ├── preview.html
-│   ├── resultado.html
 │   ├── directorio.html
 │   └── auth/
 │       ├── login.html
 │       └── registro.html
 ├── static/
 │   └── styles.css
-├── uploads/                # Subidas por usuario (gitignored)
-└── output/                 # XLSX generados (gitignored)
+└── uploads/                # Subidas por usuario (gitignored)
 ```
 
 ---

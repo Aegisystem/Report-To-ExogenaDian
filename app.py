@@ -5,8 +5,6 @@ import io
 import os
 import shutil
 import tempfile
-import uuid
-import zipfile
 from pathlib import Path
 
 import pandas as pd
@@ -14,14 +12,14 @@ from dotenv import load_dotenv
 from flask import (
     Flask, flash, redirect, render_template, request, send_file, session, url_for,
 )
-from flask_login import current_user, login_required
+from flask_login import login_required
 from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill
 from werkzeug.utils import secure_filename
 
 from auth import bp as auth_bp, login_manager
 from core import directorio, parser, registry
-from db import db, usuario_actual_id
+from db import db, migrar_codigos_territoriales, usuario_actual_id
 from generators import GENERADORES
 from generators.base import ContextoInformante, _config
 
@@ -30,9 +28,7 @@ load_dotenv()
 
 BASE = Path(__file__).resolve().parent
 UPLOADS = BASE / "uploads"
-OUTPUT = BASE / "output"
 UPLOADS.mkdir(exist_ok=True)
-OUTPUT.mkdir(exist_ok=True)
 
 
 def crear_app() -> Flask:
@@ -59,6 +55,7 @@ def crear_app() -> Flask:
 
     with app.app_context():
         db.create_all()
+        migrar_codigos_territoriales()
         registry.sembrar_catalogo_global()
 
     _registrar_rutas(app)
@@ -75,13 +72,6 @@ def _user_dir(sub: str) -> Path:
         d = d / sub
         d.mkdir(exist_ok=True, parents=True)
     return d
-
-
-def _output_path(filename: str) -> Path:
-    uid = usuario_actual_id()
-    d = OUTPUT / f"u{uid}"
-    d.mkdir(exist_ok=True)
-    return d / filename
 
 
 def _cargar_df():
@@ -211,52 +201,20 @@ def _registrar_rutas(app: Flask) -> None:
 
         df_filtrado = parser.filtrar_por_periodo(df, ano, mes_ini, mes_fin)
 
-        resultados = {}
         dataframes = {}
         for codigo, GenClass in GENERADORES.items():
             gen = GenClass(ctx)
-            salida = gen.generar(df_filtrado)
-            path = _output_path(f"F{codigo}_AG{ano}_{nit_inf or 'INFORMANTE'}.xlsx")
-            _exportar_xlsx_individual(salida, path, codigo, ctx)
-            resultados[codigo] = {"filas": len(salida), "ruta": path.name, "nombre": gen.cfg["nombre"]}
-            dataframes[codigo] = salida
+            dataframes[codigo] = gen.generar(df_filtrado)
 
-        consolidado_path = _output_path(f"Exogena_AG{ano}_{nit_inf or 'INFORMANTE'}.xlsx")
-        _exportar_xlsx_consolidado(dataframes, consolidado_path, ctx)
-
-        session["resultados"] = resultados
-        session["consolidado"] = consolidado_path.name
-        session["ctx_resumen"] = {"nit": nit_inf, "nombre": nombre_inf, "ano": ano, "mes_ini": mes_ini, "mes_fin": mes_fin}
-        return redirect(url_for("resultado"))
-
-
-    @app.get("/resultado")
-    @login_required
-    def resultado():
-        return render_template(
-            "resultado.html",
-            resultados=session.get("resultados", {}),
-            consolidado=session.get("consolidado", ""),
-            ctx=session.get("ctx_resumen", {}),
+        nit_archivo = secure_filename(nit_inf) or "INFORMANTE"
+        nombre_archivo = f"Exogena_AG{ano}_{nit_archivo}.xlsx"
+        archivo = _crear_xlsx_consolidado(dataframes, ctx)
+        return send_file(
+            archivo,
+            as_attachment=True,
+            download_name=nombre_archivo,
+            mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         )
-
-
-    @app.get("/descargar/<codigo>")
-    @login_required
-    def descargar(codigo):
-        info = session.get("resultados", {}).get(codigo)
-        if not info:
-            return redirect(url_for("index"))
-        return send_file(_output_path(info["ruta"]), as_attachment=True, download_name=info["ruta"])
-
-
-    @app.get("/descargar_todo")
-    @login_required
-    def descargar_todo():
-        nombre = session.get("consolidado")
-        if not nombre:
-            return redirect(url_for("index"))
-        return send_file(_output_path(nombre), as_attachment=True, download_name=nombre)
 
 
     @app.get("/directorio")
@@ -355,8 +313,8 @@ def _registrar_rutas(app: Flask) -> None:
             "nom1": request.form.get("nom1", "").strip(),
             "nom2": request.form.get("nom2", "").strip(),
             "dir": request.form.get("dir", "").strip(),
-            "dpto": int(request.form.get("dpto") or 0),
-            "mun": int(request.form.get("mun") or 0),
+            "dpto": request.form.get("dpto", "").strip(),
+            "mun": request.form.get("mun", "").strip(),
             "pais": int(request.form.get("pais") or 169),
         }
         dv_str = request.form.get("dv", "").strip()
@@ -378,15 +336,10 @@ def _registrar_rutas(app: Flask) -> None:
         return redirect(url_for("ver_directorio"))
 
 
-# ---------------- exportación XLSX ----------------
-
-def _exportar_xlsx_individual(df: pd.DataFrame, path: Path, codigo: str, ctx: ContextoInformante):
-    wb = Workbook()
-    _llenar_hoja(wb.active, df, codigo, ctx, with_meta=True)
-    wb.save(path)
+# ---------------- exportación XLSX en memoria ----------------
 
 
-def _exportar_xlsx_consolidado(dataframes: dict[str, pd.DataFrame], path: Path, ctx: ContextoInformante):
+def _crear_xlsx_consolidado(dataframes: dict[str, pd.DataFrame], ctx: ContextoInformante) -> io.BytesIO:
     wb = Workbook()
     ws = wb.active
     ws.title = "Índice"
@@ -409,7 +362,10 @@ def _exportar_xlsx_consolidado(dataframes: dict[str, pd.DataFrame], path: Path, 
     for codigo, df in dataframes.items():
         hoja = wb.create_sheet(title=f"F{codigo}")
         _llenar_hoja(hoja, df, codigo, ctx, with_meta=False)
-    wb.save(path)
+    archivo = io.BytesIO()
+    wb.save(archivo)
+    archivo.seek(0)
+    return archivo
 
 
 def _llenar_hoja(ws, df: pd.DataFrame, codigo: str, ctx: ContextoInformante, with_meta: bool):

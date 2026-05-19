@@ -16,7 +16,7 @@ from typing import Optional
 from flask_login import UserMixin
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy import (
-    Boolean, DateTime, ForeignKey, Integer, String, UniqueConstraint, func,
+    Boolean, DateTime, ForeignKey, Integer, String, UniqueConstraint, func, inspect, text,
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 from werkzeug.security import check_password_hash, generate_password_hash
@@ -27,6 +27,17 @@ class Base(DeclarativeBase):
 
 
 db = SQLAlchemy(model_class=Base)
+
+
+def _codigo_dane(valor, ancho: int) -> str | None:
+    if valor in (None, "", 0):
+        return None
+    digits = "".join(ch for ch in str(valor).strip() if ch.isdigit())
+    if not digits or set(digits) == {"0"}:
+        return None
+    if len(digits) <= ancho:
+        return digits.zfill(ancho)
+    return digits[:ancho] if ancho == 2 else digits[-ancho:]
 
 
 class Usuario(UserMixin, db.Model):
@@ -64,8 +75,8 @@ class Tercero(db.Model):
     nom1: Mapped[Optional[str]] = mapped_column(String(60), nullable=True)
     nom2: Mapped[Optional[str]] = mapped_column(String(60), nullable=True)
     direccion: Mapped[Optional[str]] = mapped_column("dir", String(200), nullable=True)
-    dpto: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
-    mun: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    dpto: Mapped[Optional[str]] = mapped_column(String(2), nullable=True)
+    mun: Mapped[Optional[str]] = mapped_column(String(3), nullable=True)
     pais: Mapped[Optional[int]] = mapped_column(Integer, nullable=True, default=169)
     fuente: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
     actualizado_en: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
@@ -87,8 +98,8 @@ class Tercero(db.Model):
             "nom1": self.nom1 or "",
             "nom2": self.nom2 or "",
             "dir": self.direccion or "",
-            "dpto": self.dpto,
-            "mun": self.mun,
+            "dpto": _codigo_dane(self.dpto, 2),
+            "mun": _codigo_dane(self.mun, 3),
             "pais": self.pais,
         }
         return {k: v for k, v in out.items() if v not in (None, "")}
@@ -141,7 +152,7 @@ class NitNoEncontrado(db.Model):
 
 
 class Generacion(db.Model):
-    """Historial de generaciones. Solo metadatos; los archivos quedan en /output."""
+    """Historial de generaciones. Solo metadatos; los XLSX se entregan en memoria."""
     __tablename__ = "generacion"
 
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -163,3 +174,104 @@ def usuario_actual_id() -> int:
     if not getattr(current_user, "is_authenticated", False):
         raise RuntimeError("No hay usuario en sesión")
     return int(current_user.id)
+
+
+def migrar_codigos_territoriales() -> None:
+    """Convierte dpto/mun de entero a texto para conservar ceros a la izquierda."""
+    inspector = inspect(db.engine)
+    if "tercero" not in inspector.get_table_names():
+        return
+
+    columnas = {c["name"]: c for c in inspector.get_columns("tercero")}
+    dpto_es_texto = isinstance(columnas.get("dpto", {}).get("type"), String)
+    mun_es_texto = isinstance(columnas.get("mun", {}).get("type"), String)
+    dialecto = db.engine.dialect.name
+
+    if dialecto == "postgresql":
+        if not (dpto_es_texto and mun_es_texto):
+            db.session.execute(text("""
+                ALTER TABLE tercero
+                ALTER COLUMN dpto TYPE VARCHAR(2) USING
+                    CASE
+                        WHEN dpto IS NULL OR dpto::text = '' OR dpto::text ~ '^0+$' THEN NULL
+                        WHEN dpto::text ~ '^[0-9]{1,2}$' THEN LPAD(dpto::text, 2, '0')
+                        WHEN dpto::text ~ '^[0-9]+$' THEN LEFT(dpto::text, 2)
+                        ELSE NULL
+                    END,
+                ALTER COLUMN mun TYPE VARCHAR(3) USING
+                    CASE
+                        WHEN mun IS NULL OR mun::text = '' OR mun::text ~ '^0+$' THEN NULL
+                        WHEN mun::text ~ '^[0-9]{1,3}$' THEN LPAD(mun::text, 3, '0')
+                        WHEN mun::text ~ '^[0-9]+$' THEN RIGHT(mun::text, 3)
+                        ELSE NULL
+                    END
+            """))
+        db.session.execute(text("""
+            UPDATE tercero
+            SET
+                dpto = CASE
+                    WHEN dpto IS NULL OR dpto = '' OR dpto ~ '^0+$' THEN NULL
+                    WHEN dpto ~ '^[0-9]{1,2}$' THEN LPAD(dpto, 2, '0')
+                    WHEN dpto ~ '^[0-9]+$' THEN LEFT(dpto, 2)
+                    ELSE NULL
+                END,
+                mun = CASE
+                    WHEN mun IS NULL OR mun = '' OR mun ~ '^0+$' THEN NULL
+                    WHEN mun ~ '^[0-9]{1,3}$' THEN LPAD(mun, 3, '0')
+                    WHEN mun ~ '^[0-9]+$' THEN RIGHT(mun, 3)
+                    ELSE NULL
+                END
+        """))
+        db.session.commit()
+        return
+
+    if dialecto == "sqlite" and not (dpto_es_texto and mun_es_texto):
+        with db.engine.begin() as conn:
+            conn.execute(text("""
+                CREATE TABLE tercero_new (
+                    id INTEGER NOT NULL,
+                    usuario_id INTEGER NOT NULL,
+                    nid VARCHAR(20) NOT NULL,
+                    tdoc INTEGER,
+                    dv INTEGER,
+                    raz VARCHAR(450),
+                    apl1 VARCHAR(60),
+                    apl2 VARCHAR(60),
+                    nom1 VARCHAR(60),
+                    nom2 VARCHAR(60),
+                    dir VARCHAR(200),
+                    dpto VARCHAR(2),
+                    mun VARCHAR(3),
+                    pais INTEGER,
+                    fuente VARCHAR(50),
+                    actualizado_en DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    PRIMARY KEY (id),
+                    FOREIGN KEY(usuario_id) REFERENCES usuario (id) ON DELETE CASCADE,
+                    CONSTRAINT uq_tercero_usuario_nid UNIQUE (usuario_id, nid)
+                )
+            """))
+            conn.execute(text("""
+                INSERT INTO tercero_new (
+                    id, usuario_id, nid, tdoc, dv, raz, apl1, apl2, nom1, nom2,
+                    dir, dpto, mun, pais, fuente, actualizado_en
+                )
+                SELECT
+                    id, usuario_id, nid, tdoc, dv, raz, apl1, apl2, nom1, nom2,
+                    dir,
+                    CASE
+                        WHEN dpto IS NULL OR CAST(dpto AS TEXT) = '' OR CAST(dpto AS TEXT) = '0'
+                        THEN NULL
+                        ELSE printf('%02d', CAST(dpto AS INTEGER))
+                    END,
+                    CASE
+                        WHEN mun IS NULL OR CAST(mun AS TEXT) = '' OR CAST(mun AS TEXT) = '0'
+                        THEN NULL
+                        ELSE printf('%03d', CAST(mun AS INTEGER))
+                    END,
+                    pais, fuente, actualizado_en
+                FROM tercero
+            """))
+            conn.execute(text("DROP TABLE tercero"))
+            conn.execute(text("ALTER TABLE tercero_new RENAME TO tercero"))
+            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_tercero_usuario_id ON tercero (usuario_id)"))
+            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_tercero_nid ON tercero (nid)"))

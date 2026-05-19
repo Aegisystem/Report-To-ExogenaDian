@@ -64,6 +64,10 @@ def _aplicar_campos(t: Tercero, datos: dict[str, Any]) -> None:
         if src not in datos:
             continue
         v = datos[src]
+        if src == "dpto":
+            v = helpers.normalizar_departamento(v)
+        elif src == "mun":
+            v = helpers.normalizar_municipio(v)
         if v in (None, "", 0):
             existente = getattr(t, dst, None)
             if existente not in (None, "", 0):
@@ -179,10 +183,10 @@ def _parsear_party(party: ET.Element) -> dict[str, Any]:
         mun_id = _texto(direccion, "cbc:ID") or _texto(direccion, "cbc:CityName")
         if mun_id and mun_id.isdigit():
             if len(mun_id) == 5:
-                out["dpto"] = int(mun_id[:2])
-                out["mun"] = int(mun_id[2:])
+                out["dpto"] = helpers.normalizar_departamento(mun_id)
+                out["mun"] = helpers.normalizar_municipio(mun_id)
             elif len(mun_id) <= 3:
-                out["mun"] = int(mun_id)
+                out["mun"] = helpers.normalizar_municipio(mun_id)
 
         pais_code = _texto(direccion, "cac:Country/cbc:IdentificationCode")
         if pais_code == "CO":
@@ -217,7 +221,12 @@ def _importar_formato_dian(root: ET.Element) -> list[dict[str, Any]]:
         for k in ("dpto", "mun", "pais"):
             v = attrs.get(k, "")
             if v.isdigit():
-                data[k] = int(v)
+                if k == "dpto":
+                    data[k] = helpers.normalizar_departamento(v)
+                elif k == "mun":
+                    data[k] = helpers.normalizar_municipio(v)
+                else:
+                    data[k] = int(v)
         if "dv" not in data:
             dv = helpers.calcular_dv(nid)
             if dv is not None:
