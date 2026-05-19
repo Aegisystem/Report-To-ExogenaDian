@@ -23,6 +23,27 @@ App web que convierte exportaciones MUISCA de facturación electrónica a los fo
 
 ## Desarrollo local
 
+### Docker Compose
+
+```bash
+# Requerido: usa la URL de tu Postgres cloud (Neon, Supabase, etc.)
+export DATABASE_URL="postgresql://usuario:password@host/db?sslmode=require"
+
+# Opcional: carpeta del Mac que quieres leer desde /directorio/importar_ruta
+export HOST_XMLS_DIR="/Users/tuusuario/ruta/a/xmls"
+
+docker compose up --build
+# Abre http://127.0.0.1:5050/ y registra tu cuenta
+```
+
+Si usas importación por ruta local dentro de Docker, escribe esta ruta en la app:
+
+```text
+/host-xmls
+```
+
+### Python local
+
 ```powershell
 # Clonar
 git clone <tu-repo>

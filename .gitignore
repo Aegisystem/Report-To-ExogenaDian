@@ -26,6 +26,7 @@ config/directorio_no_encontrados.json
 # Trabajo en curso
 uploads/
 output/
+xmls/
 *.parquet
 
 # OS
