@@ -75,6 +75,7 @@ class BaseFormato:
         self.cfg = _config()["formatos"][self.CODIGO]
         self.columnas = self.cfg["columnas"]
         self._reglas = registry.regla_para_formato(self.CODIGO)
+        self._tipos = registry.catalogo_tipos()
 
     # ---- API ----
 
@@ -98,19 +99,21 @@ class BaseFormato:
         if df.empty:
             return df
         es_colab = self.CODIGO.startswith("52")
+        if es_colab and not self.ctx.es_participante_colaboracion:
+            return df.iloc[0:0].copy()
+        if "tipo_documento" not in df.columns or "grupo" not in df.columns:
+            return df.iloc[0:0].copy()
 
-        def aplica(row):
-            cat = registry.categoria(row.get("tipo_documento", ""))
-            if not cat:
-                return False
-            grp = (row.get("grupo") or "").strip()
-            # En formatos 52xx, solo aplican si el informante es participante
-            if es_colab and not self.ctx.es_participante_colaboracion:
-                return False
-            return (cat, grp) in self._reglas
-
-        mask = df.apply(aplica, axis=1)
-        return df[mask].copy()
+        out = df.copy()
+        tipos = out["tipo_documento"].fillna("").astype(str).str.strip()
+        grupos = out["grupo"].fillna("").astype(str).str.strip()
+        categorias = tipos.map(lambda t: self._tipos.get(t, {}).get("categoria"))
+        signos = tipos.map(lambda t: int(self._tipos.get(t, {}).get("signo", 1)))
+        mask = [(cat, grp) in self._reglas for cat, grp in zip(categorias, grupos)]
+        out = out.loc[mask].copy()
+        out["__categoria__"] = categorias.loc[out.index]
+        out["__signo__"] = signos.loc[out.index]
+        return out
 
     def _agrupar_por_tercero(self, df: pd.DataFrame) -> dict[str, pd.DataFrame]:
         if df.empty:
@@ -177,14 +180,17 @@ class BaseFormato:
         """Suma 'columna' aplicando el signo del tipo de documento."""
         if columna not in sub.columns:
             return 0.0
-        total = 0.0
-        for _, row in sub.iterrows():
-            cat = registry.categoria(row.get("tipo_documento", ""))
-            if cat in ("ignorar", "nomina"):
-                continue
-            s = registry.signo(row.get("tipo_documento", ""))
-            total += float(row.get(columna, 0) or 0) * s
-        return total
+        valores = pd.to_numeric(sub[columna], errors="coerce").fillna(0.0)
+        if "__signo__" in sub.columns:
+            signos = pd.to_numeric(sub["__signo__"], errors="coerce").fillna(1.0)
+        else:
+            tipos = sub.get("tipo_documento", pd.Series(index=sub.index, dtype=str)).fillna("").astype(str).str.strip()
+            signos = tipos.map(lambda t: int(self._tipos.get(t, {}).get("signo", 1)))
+        if "__categoria__" in sub.columns:
+            aplicables = ~sub["__categoria__"].isin(("ignorar", "nomina"))
+            valores = valores[aplicables]
+            signos = signos[aplicables]
+        return float((valores * signos).sum())
 
     def _tipar(self, df: pd.DataFrame) -> pd.DataFrame:
         for c in self.columnas:

@@ -23,6 +23,7 @@ import zipfile
 from pathlib import Path
 from typing import Any, Iterable
 
+from flask import g, has_request_context
 from sqlalchemy import select
 
 from core import helpers
@@ -39,6 +40,16 @@ def lookup(nid: str) -> dict[str, Any] | None:
     except Exception:
         return None
     nid = str(nid).strip()
+    if has_request_context():
+        cache = getattr(g, "_directorio_lookup_cache", None)
+        cache_uid = getattr(g, "_directorio_lookup_cache_uid", None)
+        if cache is None or cache_uid != uid:
+            rows = db.session.scalars(select(Tercero).where(Tercero.usuario_id == uid)).all()
+            cache = {t.nid: t.to_dict() for t in rows}
+            g._directorio_lookup_cache = cache
+            g._directorio_lookup_cache_uid = uid
+        return cache.get(nid)
+
     t = db.session.scalar(select(Tercero).where(Tercero.usuario_id == uid, Tercero.nid == nid))
     return t.to_dict() if t else None
 

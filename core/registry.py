@@ -6,6 +6,7 @@ con los defaults del sistema. El lookup prefiere el del usuario y cae al global.
 API pública compatible con la versión JSON:
   - tipos_conocidos() -> set[str]
   - registrar_tipo(nombre, categoria, signo=1)
+  - catalogo_tipos() -> dict[str, dict]
   - categoria(nombre) -> str | None
   - signo(nombre) -> int
   - concepto_default(formato) -> int
@@ -102,6 +103,35 @@ def tipos_conocidos() -> set[str]:
     else:
         q = q.filter(TipoDocumento.usuario_id.is_(None))
     return {row[0] for row in q}
+
+
+def catalogo_tipos(usuario_id: int | None = None) -> dict[str, dict[str, int | str]]:
+    """Catálogo completo para el usuario, con tipos propios sobreescribiendo globales."""
+    if usuario_id is None:
+        try:
+            usuario_id = usuario_actual_id()
+        except Exception:
+            usuario_id = None
+
+    out: dict[str, dict[str, int | str]] = {}
+    globales = (
+        db.session.query(TipoDocumento)
+        .filter(TipoDocumento.usuario_id.is_(None))
+        .all()
+    )
+    for t in globales:
+        out[t.nombre] = {"categoria": t.categoria, "signo": int(t.signo)}
+
+    if usuario_id is not None:
+        propios = (
+            db.session.query(TipoDocumento)
+            .filter(TipoDocumento.usuario_id == usuario_id)
+            .all()
+        )
+        for t in propios:
+            out[t.nombre] = {"categoria": t.categoria, "signo": int(t.signo)}
+
+    return out
 
 
 def registrar_tipo(nombre: str, categoria: str, signo: int = 1) -> None:
