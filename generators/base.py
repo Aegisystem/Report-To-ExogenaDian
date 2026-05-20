@@ -94,6 +94,18 @@ class BaseFormato:
 
     # ---- helpers comunes ----
 
+    def _categoria_tipo(self, tipo: str) -> str | None:
+        if registry.es_tipo_nomina(tipo):
+            return "nomina"
+        info = self._tipos.get(tipo, {})
+        cat = info.get("categoria")
+        return str(cat) if cat else None
+
+    def _signo_tipo(self, tipo: str) -> int:
+        if registry.es_tipo_nomina(tipo):
+            return 1
+        return int(self._tipos.get(tipo, {}).get("signo", 1))
+
     def _filtrar_aplicables(self, df: pd.DataFrame) -> pd.DataFrame:
         """Devuelve solo las filas cuya (categoria, grupo) aporta a este formato."""
         if df.empty:
@@ -107,8 +119,8 @@ class BaseFormato:
         out = df.copy()
         tipos = out["tipo_documento"].fillna("").astype(str).str.strip()
         grupos = out["grupo"].fillna("").astype(str).str.strip()
-        categorias = tipos.map(lambda t: self._tipos.get(t, {}).get("categoria"))
-        signos = tipos.map(lambda t: int(self._tipos.get(t, {}).get("signo", 1)))
+        categorias = tipos.map(self._categoria_tipo)
+        signos = tipos.map(self._signo_tipo)
         mask = [(cat, grp) in self._reglas for cat, grp in zip(categorias, grupos)]
         out = out.loc[mask].copy()
         out["__categoria__"] = categorias.loc[out.index]
@@ -185,7 +197,7 @@ class BaseFormato:
             signos = pd.to_numeric(sub["__signo__"], errors="coerce").fillna(1.0)
         else:
             tipos = sub.get("tipo_documento", pd.Series(index=sub.index, dtype=str)).fillna("").astype(str).str.strip()
-            signos = tipos.map(lambda t: int(self._tipos.get(t, {}).get("signo", 1)))
+            signos = tipos.map(self._signo_tipo)
         if "__categoria__" in sub.columns:
             aplicables = ~sub["__categoria__"].isin(("ignorar", "nomina"))
             valores = valores[aplicables]

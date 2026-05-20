@@ -159,4 +159,4 @@ def detectar_tipos_no_mapeados(df: pd.DataFrame, tipos_conocidos: set[str]) -> l
     if "tipo_documento" not in df.columns:
         return []
     presentes = set(df["tipo_documento"].dropna().unique())
-    return sorted(presentes - tipos_conocidos)
+    return sorted(t for t in presentes - tipos_conocidos if "nomina" not in _slug(t))

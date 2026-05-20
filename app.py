@@ -15,6 +15,8 @@ from flask import (
 from flask_login import login_required
 from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill
+from sqlalchemy.engine import make_url
+from sqlalchemy.exc import ArgumentError
 from werkzeug.utils import secure_filename
 
 from auth import bp as auth_bp, login_manager
@@ -31,15 +33,32 @@ UPLOADS = BASE / "uploads"
 UPLOADS.mkdir(exist_ok=True)
 
 
-def crear_app() -> Flask:
-    app = Flask(__name__)
+def _normalizar_database_url(raw: str | None) -> str:
+    db_url = (raw or "").strip().strip('"').strip("'")
+    if not db_url:
+        return "sqlite:///dev.db"
 
-    db_url = os.environ.get("DATABASE_URL", "sqlite:///dev.db")
     # Render/Heroku usan postgres:// pero SQLAlchemy 2.0 quiere postgresql://
     if db_url.startswith("postgres://"):
         db_url = db_url.replace("postgres://", "postgresql+psycopg://", 1)
     elif db_url.startswith("postgresql://"):
         db_url = db_url.replace("postgresql://", "postgresql+psycopg://", 1)
+
+    try:
+        make_url(db_url)
+    except ArgumentError as exc:
+        raise RuntimeError(
+            "DATABASE_URL invalida. En Coolify pon solo el valor de la URL, sin "
+            "'DATABASE_URL=', sin comillas, y con caracteres especiales del password "
+            "codificados para URL."
+        ) from exc
+    return db_url
+
+
+def crear_app() -> Flask:
+    app = Flask(__name__)
+
+    db_url = _normalizar_database_url(os.environ.get("DATABASE_URL"))
 
     app.config["SQLALCHEMY_DATABASE_URI"] = db_url
     app.config["SQLALCHEMY_ENGINE_OPTIONS"] = {"pool_pre_ping": True, "pool_recycle": 300}

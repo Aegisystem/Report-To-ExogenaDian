@@ -16,6 +16,8 @@ API pública compatible con la versión JSON:
 """
 from __future__ import annotations
 
+import unicodedata
+
 from sqlalchemy import or_
 
 from db import ConceptoDefault, TipoDocumento, db, usuario_actual_id
@@ -59,6 +61,23 @@ _DEFAULTS_CONCEPTOS = {
 }
 
 PAIS_DEFAULT = 169
+
+
+def _normalizar_tipo(nombre: str | None) -> str:
+    txt = "" if nombre is None else str(nombre)
+    txt = "".join(c for c in unicodedata.normalize("NFD", txt) if unicodedata.category(c) != "Mn")
+    return txt.lower().strip()
+
+
+def es_tipo_nomina(nombre: str | None) -> bool:
+    """Regla dura: cualquier tipo que diga nomina/nomina se ignora."""
+    return "nomina" in _normalizar_tipo(nombre)
+
+
+def _normalizar_mapeo_tipo(nombre: str, categoria: str, signo: int) -> tuple[str, int]:
+    if es_tipo_nomina(nombre):
+        return ("nomina", 1)
+    return (categoria, int(signo))
 
 
 def sembrar_catalogo_global() -> None:
@@ -120,7 +139,8 @@ def catalogo_tipos(usuario_id: int | None = None) -> dict[str, dict[str, int | s
         .all()
     )
     for t in globales:
-        out[t.nombre] = {"categoria": t.categoria, "signo": int(t.signo)}
+        categoria, signo = _normalizar_mapeo_tipo(t.nombre, t.categoria, t.signo)
+        out[t.nombre] = {"categoria": categoria, "signo": signo}
 
     if usuario_id is not None:
         propios = (
@@ -129,7 +149,8 @@ def catalogo_tipos(usuario_id: int | None = None) -> dict[str, dict[str, int | s
             .all()
         )
         for t in propios:
-            out[t.nombre] = {"categoria": t.categoria, "signo": int(t.signo)}
+            categoria, signo = _normalizar_mapeo_tipo(t.nombre, t.categoria, t.signo)
+            out[t.nombre] = {"categoria": categoria, "signo": signo}
 
     return out
 
@@ -137,6 +158,7 @@ def catalogo_tipos(usuario_id: int | None = None) -> dict[str, dict[str, int | s
 def registrar_tipo(nombre: str, categoria: str, signo: int = 1) -> None:
     """Registra/actualiza un tipo para el usuario actual."""
     uid = usuario_actual_id()
+    categoria, signo = _normalizar_mapeo_tipo(nombre, categoria, signo)
     existente = (
         db.session.query(TipoDocumento)
         .filter_by(usuario_id=uid, nombre=nombre)
@@ -151,11 +173,15 @@ def registrar_tipo(nombre: str, categoria: str, signo: int = 1) -> None:
 
 
 def categoria(nombre: str) -> str | None:
+    if es_tipo_nomina(nombre):
+        return "nomina"
     t = _query_tipo(nombre)
     return t.categoria if t else None
 
 
 def signo(nombre: str) -> int:
+    if es_tipo_nomina(nombre):
+        return 1
     t = _query_tipo(nombre)
     return t.signo if t else 1
 
