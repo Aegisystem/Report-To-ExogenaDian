@@ -55,7 +55,19 @@
 </div>
 
 <div class="box">
-  <strong>3. Agregar / editar tercero manualmente</strong>
+  <strong>3. Recalcular nombres de personas naturales</strong>
+  {% if tiene_df %}
+    <p class="muted">Usa el nombre original del XLSX cargado para volver a separar apellidos y nombres en los terceros que ya existen en el directorio. Conserva dirección, departamento, municipio, país y DV.</p>
+    <form method="post" action="{{ url_for('recalcular_nombres_directorio') }}" onsubmit="return confirm('¿Recalcular nombres y apellidos de personas naturales usando el XLSX cargado?')">
+      <button type="submit" class="btn-secondary">Recalcular nombres</button>
+    </form>
+  {% else %}
+    <p class="muted">Sube primero el XLSX MUISCA para usar sus nombres originales como fuente.</p>
+  {% endif %}
+</div>
+
+<div class="box">
+  <strong>4. Agregar / editar tercero manualmente</strong>
   <form method="post" action="{{ url_for('editar_tercero') }}">
     <div class="row">
       <div><label>NIT</label><input type="text" name="nid" required></div>
@@ -84,7 +96,7 @@
 </div>
 
 <div class="box">
-  <strong>4. Limpiar directorio</strong>
+  <strong>5. Limpiar directorio</strong>
   <form method="post" action="{{ url_for('limpiar_directorio') }}" onsubmit="return confirm('¿Borrar todo el directorio?')">
     <button type="submit" class="btn-secondary">Borrar todo</button>
   </form>

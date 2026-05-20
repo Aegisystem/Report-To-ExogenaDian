@@ -318,6 +318,18 @@ def _registrar_rutas(app: Flask) -> None:
         return redirect(url_for("ver_directorio"))
 
 
+    @app.post("/directorio/recalcular_nombres")
+    @login_required
+    def recalcular_nombres_directorio():
+        df = _cargar_df()
+        if df is None:
+            flash("Sube primero el XLSX MUISCA.", "error")
+            return redirect(url_for("ver_directorio"))
+        actualizados = directorio.recalcular_nombres_desde_df(df)
+        flash(f"Nombres recalculados para {actualizados} personas naturales.", "ok")
+        return redirect(url_for("ver_directorio"))
+
+
     @app.post("/directorio/editar")
     @login_required
     def editar_tercero():

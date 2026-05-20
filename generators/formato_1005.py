@@ -20,7 +20,7 @@ class Formato1005(BaseFormato):
             filas.append({
                 "tdoc": info["tdoc"],
                 "nid": info["nid"],
-                "dv": info.get("dv", 0),
+                "dv": info.get("dv", ""),
                 "apl1": info["apl1"],
                 "apl2": info["apl2"],
                 "nom1": info["nom1"],

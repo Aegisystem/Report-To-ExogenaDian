@@ -175,9 +175,12 @@ class BaseFormato:
 
         campos = {c["campo"] for c in self.columnas}
         if "dv" in campos:
-            info["dv"] = (cache or {}).get("dv") if cache else helpers.calcular_dv(nid)
-            if info["dv"] is None:
-                info["dv"] = helpers.calcular_dv(nid)
+            if tdoc == 13:
+                info["dv"] = ""
+            else:
+                info["dv"] = (cache or {}).get("dv") if cache else helpers.calcular_dv(nid)
+                if info["dv"] is None:
+                    info["dv"] = helpers.calcular_dv(nid)
         if "pais" in campos:
             info["pais"] = (cache or {}).get("pais") or registry.pais_default()
         if "dir" in campos:
@@ -211,11 +214,23 @@ class BaseFormato:
                 continue
             tipo = c.get("tipo", "str")
             maxlen = c.get("max")
-            if tipo in ("long", "int"):
+            if col == "dv":
+                df[col] = df[col].apply(self._dv_o_blanco)
+            elif tipo in ("long", "int"):
                 df[col] = df[col].apply(lambda v: self._a_entero_no_neg(v))
             else:
                 df[col] = df[col].fillna("").astype(str).str.slice(0, maxlen)
         return df
+
+    @staticmethod
+    def _dv_o_blanco(v):
+        if v in (None, "") or (isinstance(v, float) and math.isnan(v)):
+            return ""
+        try:
+            n = round(float(v))
+        except (TypeError, ValueError):
+            return ""
+        return max(0, int(n))
 
     @staticmethod
     def _a_entero_no_neg(v) -> int:

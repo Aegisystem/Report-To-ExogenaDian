@@ -18,10 +18,11 @@ Cada usuario tiene su propio directorio (filtrado por usuario_id en sesión).
 """
 from __future__ import annotations
 
+from collections import Counter
 import xml.etree.ElementTree as ET
 import zipfile
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any
 
 from flask import g, has_request_context
 from sqlalchemy import select
@@ -138,6 +139,80 @@ def actualizar_manual(nid: str, datos: dict[str, Any]) -> None:
     uid = usuario_actual_id()
     db.session.query(NitNoEncontrado).filter_by(usuario_id=uid, nid=str(nid).strip()).delete()
     db.session.commit()
+
+
+def _nombre_origen(valor: Any) -> str:
+    if valor is None:
+        return ""
+    nombre = " ".join(str(valor).strip().split())
+    if nombre.lower() in ("", "nan", "none", "nat"):
+        return ""
+    return nombre
+
+
+def _tercero_desde_fila(row) -> tuple[str, str]:
+    grupo = (row.get("grupo") or "").lower()
+    if grupo == "recibido":
+        return (
+            helpers.normalizar_nit(row.get("nit_emisor", "")),
+            _nombre_origen(row.get("nombre_emisor", "")),
+        )
+    if grupo == "emitido":
+        return (
+            helpers.normalizar_nit(row.get("nit_receptor", "")),
+            _nombre_origen(row.get("nombre_receptor", "")),
+        )
+    return ("", "")
+
+
+def _mejor_nombre(candidatos: Counter[str]) -> str:
+    return max(candidatos, key=lambda nombre: (candidatos[nombre], len(nombre.split()), len(nombre)))
+
+
+def recalcular_nombres_desde_df(df) -> int:
+    """Repara nombres/apellidos de personas naturales ya guardadas usando el XLSX cargado."""
+    if df is None or df.empty:
+        return 0
+
+    por_nit: dict[str, Counter[str]] = {}
+    for _, row in df.iterrows():
+        nid, nombre = _tercero_desde_fila(row)
+        if nid and nombre:
+            por_nit.setdefault(nid, Counter())[nombre] += 1
+    if not por_nit:
+        return 0
+
+    uid = usuario_actual_id()
+    terceros = db.session.scalars(
+        select(Tercero).where(Tercero.usuario_id == uid, Tercero.nid.in_(list(por_nit)))
+    ).all()
+
+    actualizados = 0
+    for t in terceros:
+        tdoc = t.tdoc if t.tdoc is not None else helpers.inferir_tipo_documento(t.nid)
+        if not helpers.es_persona_natural(tdoc):
+            continue
+
+        apl1, apl2, nom1, nom2 = helpers.split_nombre_persona(_mejor_nombre(por_nit[t.nid]))
+        nuevos = {
+            "tdoc": tdoc,
+            "raz": "",
+            "apl1": helpers.limpiar_texto(apl1, 60),
+            "apl2": helpers.limpiar_texto(apl2, 60),
+            "nom1": helpers.limpiar_texto(nom1, 60),
+            "nom2": helpers.limpiar_texto(nom2, 60),
+        }
+        cambio = False
+        for campo, valor in nuevos.items():
+            if getattr(t, campo) != valor:
+                setattr(t, campo, valor)
+                cambio = True
+        if cambio:
+            actualizados += 1
+
+    if actualizados:
+        db.session.commit()
+    return actualizados
 
 
 # ---------------- importador XML ----------------
