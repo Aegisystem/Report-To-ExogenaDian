@@ -23,15 +23,27 @@
 
 <form method="post" action="{{ url_for('generar') }}">
   <h2>Informante</h2>
-  <label>NIT del informante</label>
-  <select name="nit_informante" required onchange="document.getElementById('nombre_inf').value = this.options[this.selectedIndex].dataset.nombre || '';">
-    <option value="">— seleccionar —</option>
-    {% for i in informantes %}
-      <option value="{{ i.nit }}" data-nombre="{{ i.nombre }}">{{ i.nit }} — {{ i.nombre }}</option>
-    {% endfor %}
-  </select>
-  <label>Razón social</label>
-  <input type="text" id="nombre_inf" name="nombre_informante" required>
+  {% if informante %}
+    <label>NIT del informante</label>
+    <input type="text" value="{{ informante.nit }}" readonly>
+    <label>Razón social</label>
+    <input type="text" value="{{ informante.nombre }}" readonly>
+    <p class="muted" style="margin-top:8px;">El informante se detecta automáticamente desde el XLSX cargado.</p>
+  {% else %}
+    <p class="flash-error">No se detectó el NIT del informante en el XLSX. Revisa las columnas Grupo, NIT emisor/receptor y nombre emisor/receptor.</p>
+  {% endif %}
+
+  <h2>¿Es consorcio / contrato de colaboración?</h2>
+  <div class="box" style="margin-top:8px;">
+    <label>
+      <input type="radio" name="modo_colaboracion" value="no" required data-modo-colaboracion>
+      No, generar formatos 1001, 1005, 1006 y 1007
+    </label>
+    <label style="margin-top:10px;">
+      <input type="radio" name="modo_colaboracion" value="si" required data-modo-colaboracion>
+      Sí, generar formatos 5247, 5248, 5249 y 5250
+    </label>
+  </div>
 
   <h2>Periodo</h2>
   <div class="row">
@@ -52,40 +64,68 @@
   <h2>Conceptos por defecto</h2>
   <div class="row">
     <div>
-      <label>Concepto 1001 (pagos)</label>
-      <input type="number" name="cpt_1001" value="5016">
+      <label>Concepto pagos / costos</label>
+      <input type="number" name="cpt_1001" value="{{ concepto_1001 }}">
     </div>
-    <div>
+    <div data-normal-only>
       <label>Concepto 1007 (ingresos)</label>
-      <input type="number" name="cpt_1007" value="4001">
+      <input type="number" name="cpt_1007" value="{{ concepto_1007 }}">
+    </div>
+    <div data-colab-only style="display:none;">
+      <label>Concepto 5248 (ingresos consorcio)</label>
+      <input type="number" name="cpt_5248" value="{{ concepto_5248 }}">
     </div>
   </div>
 
-  <h2>Contrato de colaboración empresarial (opcional)</h2>
-  <label>
-    <input type="checkbox" name="es_participante"> El informante participa en un contrato de colaboración (5247-5250)
-  </label>
-  <div class="row">
-    <div>
-      <label>Tipo contrato</label>
-      <input type="number" name="tipo_contrato" value="1">
+  <div data-colab-only style="display:none;">
+    <h2>Contrato de colaboración empresarial</h2>
+    <p class="muted">La identificación del participante se toma automáticamente del mismo informante.</p>
+    <div class="row">
+      <div>
+        <label>Tipo contrato</label>
+        <input type="number" name="tipo_contrato" value="2">
+      </div>
+      <div>
+        <label>NIT participante</label>
+        <input type="text" value="{{ informante.nit if informante else '' }}" readonly>
+      </div>
+      <div>
+        <label>Tipo doc participante</label>
+        <input type="number" value="{{ informante.tdoc if informante else 31 }}" readonly>
+      </div>
+      <div>
+        <label>ID fideicomiso</label>
+        <input type="text" name="id_fideicomiso">
+      </div>
     </div>
-    <div>
-      <label>NIT participante</label>
-      <input type="text" name="nit_participante">
-    </div>
-    <div>
-      <label>Tipo doc participante</label>
-      <input type="number" name="tdoc_participante" value="31">
-    </div>
-    <div>
-      <label>ID fideicomiso</label>
-      <input type="text" name="id_fideicomiso">
-    </div>
+  </div>
+
+  <div data-normal-only class="box" style="margin-top:16px; display:none;">
+    Se generarán únicamente los formatos 1001, 1005, 1006 y 1007.
+  </div>
+  <div data-colab-only class="box" style="margin-top:16px; display:none;">
+    Se generarán únicamente los formatos 5247, 5248, 5249 y 5250.
   </div>
 
   <div style="margin-top: 32px;">
-    <button type="submit" class="btn-success">Generar y descargar XLSX</button>
+    <button type="submit" class="btn-success" {% if not informante %}disabled{% endif %}>Generar y descargar XLSX</button>
   </div>
 </form>
+
+<script>
+  function actualizarModoColaboracion() {
+    const seleccionado = document.querySelector('input[name="modo_colaboracion"]:checked');
+    const esColab = seleccionado && seleccionado.value === 'si';
+    document.querySelectorAll('[data-colab-only]').forEach((el) => {
+      el.style.display = esColab ? '' : 'none';
+    });
+    document.querySelectorAll('[data-normal-only]').forEach((el) => {
+      el.style.display = seleccionado && !esColab ? '' : 'none';
+    });
+  }
+  document.querySelectorAll('[data-modo-colaboracion]').forEach((input) => {
+    input.addEventListener('change', actualizarModoColaboracion);
+  });
+  actualizarModoColaboracion();
+</script>
 {% endblock %}

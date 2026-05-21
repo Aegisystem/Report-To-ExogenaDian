@@ -14,8 +14,8 @@ class Formato1007(BaseFormato):
         filas = []
         for _nit, sub in self._agrupar_por_tercero(df_g).items():
             info = self._info_tercero(sub)
-            ibru = self._suma_neta(sub, "base")
-            if ibru <= 0:
+            ibru, dred = self._sumas_positivas_y_devoluciones(sub, "base")
+            if ibru <= 0 and dred <= 0:
                 continue
             filas.append({
                 "cpt": self.ctx.concepto_default_1007,
@@ -28,6 +28,6 @@ class Formato1007(BaseFormato):
                 "raz": info["raz"],
                 "pais": info["pais"],
                 "ibru": ibru,
-                "dred": 0,
+                "dred": dred,
             })
         return filas

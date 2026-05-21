@@ -16,8 +16,8 @@ class Formato5248(BaseFormato):
         filas = []
         for _nit, sub in self._agrupar_por_tercero(df_g).items():
             info = self._info_tercero(sub)
-            ibure = self._suma_neta(sub, "base")
-            if ibure <= 0:
+            ibure, dred = self._sumas_positivas_y_devoluciones(sub, "base")
+            if ibure <= 0 and dred <= 0:
                 continue
             filas.append({
                 "tcon": self.ctx.tipo_contrato,
@@ -31,7 +31,7 @@ class Formato5248(BaseFormato):
                 "raz": info["raz"],
                 "pais": info["pais"],
                 "ibure": ibure,
-                "dred": 0,
+                "dred": dred,
                 "idfi": self.ctx.id_fideicomiso,
                 "tdopa": self.ctx.tdoc_participante,
                 "nidpa": self.ctx.nit_participante,

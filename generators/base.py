@@ -40,7 +40,7 @@ class ContextoInformante:
     concepto_default_1001: int = 5016
     concepto_default_1007: int = 4001
     es_participante_colaboracion: bool = False
-    tipo_contrato: int = 1
+    tipo_contrato: int = 2
     nit_participante: str = ""
     tdoc_participante: int = 31
     id_fideicomiso: str = ""
@@ -111,7 +111,7 @@ class BaseFormato:
         if df.empty:
             return df
         es_colab = self.CODIGO.startswith("52")
-        if es_colab and not self.ctx.es_participante_colaboracion:
+        if es_colab != self.ctx.es_participante_colaboracion:
             return df.iloc[0:0].copy()
         if "tipo_documento" not in df.columns or "grupo" not in df.columns:
             return df.iloc[0:0].copy()
@@ -153,6 +153,12 @@ class BaseFormato:
         info: dict[str, Any] = {"nid": nid, "tdoc": tdoc}
 
         cache = directorio.lookup(nid)
+        if cache and cache.get("tdoc"):
+            try:
+                tdoc = int(cache["tdoc"])
+                info["tdoc"] = tdoc
+            except (TypeError, ValueError):
+                pass
 
         if helpers.es_persona_natural(tdoc):
             if cache and (cache.get("apl1") or cache.get("nom1")):
@@ -206,6 +212,25 @@ class BaseFormato:
             valores = valores[aplicables]
             signos = signos[aplicables]
         return float((valores * signos).sum())
+
+    def _sumas_positivas_y_devoluciones(self, sub: pd.DataFrame, columna: str) -> tuple[float, float]:
+        """Separa valores con signo positivo de valores negativos como devoluciones."""
+        if columna not in sub.columns:
+            return (0.0, 0.0)
+        valores = pd.to_numeric(sub[columna], errors="coerce").fillna(0.0)
+        if "__signo__" in sub.columns:
+            signos = pd.to_numeric(sub["__signo__"], errors="coerce").fillna(1.0)
+        else:
+            tipos = sub.get("tipo_documento", pd.Series(index=sub.index, dtype=str)).fillna("").astype(str).str.strip()
+            signos = tipos.map(self._signo_tipo)
+        if "__categoria__" in sub.columns:
+            aplicables = ~sub["__categoria__"].isin(("ignorar", "nomina"))
+            valores = valores[aplicables]
+            signos = signos[aplicables]
+        firmados = valores * signos
+        ingresos = float(firmados[firmados > 0].sum())
+        devoluciones = float((-firmados[firmados < 0]).sum())
+        return (ingresos, devoluciones)
 
     def _tipar(self, df: pd.DataFrame) -> pd.DataFrame:
         for c in self.columnas:

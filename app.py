@@ -20,7 +20,7 @@ from sqlalchemy.exc import ArgumentError
 from werkzeug.utils import secure_filename
 
 from auth import bp as auth_bp, login_manager
-from core import directorio, parser, registry
+from core import directorio, helpers, parser, registry
 from db import db, migrar_codigos_territoriales, usuario_actual_id
 from generators import GENERADORES
 from generators.base import ContextoInformante, _config
@@ -105,6 +105,25 @@ def _guardar_df(df: pd.DataFrame):
     df.to_parquet(p, index=False)
 
 
+def _informante_actual() -> dict[str, str] | None:
+    informantes = session.get("informantes", [])
+    if not informantes:
+        return None
+    primero = informantes[0] or {}
+    nit = str(primero.get("nit", "")).strip()
+    nombre = str(primero.get("nombre", "")).strip()
+    if not nit:
+        return None
+    return {"nit": nit, "nombre": nombre, "tdoc": str(helpers.inferir_tipo_documento(nit))}
+
+
+def _entero_form(valor, default: int) -> int:
+    try:
+        return int(valor)
+    except (TypeError, ValueError):
+        return default
+
+
 # ---------------- rutas ----------------
 
 def _registrar_rutas(app: Flask) -> None:
@@ -183,9 +202,12 @@ def _registrar_rutas(app: Flask) -> None:
         }
         return render_template(
             "preview.html",
-            informantes=session.get("informantes", []),
+            informante=_informante_actual(),
             archivo=session.get("archivo_nombre", ""),
             resumen=resumen,
+            concepto_1001=registry.concepto_default("1001") or 5016,
+            concepto_1007=registry.concepto_default("1007") or 4001,
+            concepto_5248=4010,
         )
 
 
@@ -196,17 +218,33 @@ def _registrar_rutas(app: Flask) -> None:
         if df is None:
             return redirect(url_for("index"))
 
-        nit_inf = request.form.get("nit_informante", "").strip()
-        nombre_inf = request.form.get("nombre_informante", "").strip()
-        ano = int(request.form.get("ano_gravable", "2025"))
-        mes_ini = int(request.form.get("mes_inicio", "1"))
-        mes_fin = int(request.form.get("mes_fin", "12"))
-        cpt_1001 = int(request.form.get("cpt_1001", str(registry.concepto_default("1001") or 5016)))
-        cpt_1007 = int(request.form.get("cpt_1007", str(registry.concepto_default("1007") or 4001)))
-        es_part = request.form.get("es_participante") == "on"
-        tcon = int(request.form.get("tipo_contrato", "1") or 1)
-        nit_part = request.form.get("nit_participante", "").strip()
-        tdoc_part = int(request.form.get("tdoc_participante", "31") or 31)
+        informante = _informante_actual()
+        if not informante:
+            flash("No se detectó el NIT del informante en el XLSX. Revisa el archivo cargado.", "error")
+            return redirect(url_for("preview"))
+
+        modo_colaboracion = request.form.get("modo_colaboracion", "")
+        if modo_colaboracion not in ("si", "no"):
+            flash("Indica obligatoriamente si es consorcio / contrato de colaboración.", "error")
+            return redirect(url_for("preview"))
+
+        nit_inf = informante["nit"]
+        nombre_inf = informante["nombre"]
+        ano = _entero_form(request.form.get("ano_gravable"), 2025)
+        mes_ini = _entero_form(request.form.get("mes_inicio"), 1)
+        mes_fin = _entero_form(request.form.get("mes_fin"), 12)
+        cpt_1001 = _entero_form(request.form.get("cpt_1001"), registry.concepto_default("1001") or 5016)
+        es_part = modo_colaboracion == "si"
+        if es_part:
+            cpt_1007 = _entero_form(request.form.get("cpt_5248"), 4010)
+            tcon = _entero_form(request.form.get("tipo_contrato"), 2)
+            nit_part = nit_inf
+            tdoc_part = helpers.inferir_tipo_documento(nit_inf)
+        else:
+            cpt_1007 = _entero_form(request.form.get("cpt_1007"), registry.concepto_default("1007") or 4001)
+            tcon = 2
+            nit_part = ""
+            tdoc_part = 31
         idfi = request.form.get("id_fideicomiso", "").strip()
 
         ctx = ContextoInformante(
@@ -221,7 +259,12 @@ def _registrar_rutas(app: Flask) -> None:
         df_filtrado = parser.filtrar_por_periodo(df, ano, mes_ini, mes_fin)
 
         dataframes = {}
-        for codigo, GenClass in GENERADORES.items():
+        formatos_objetivo = (
+            ("5247", "5248", "5249", "5250") if es_part
+            else ("1001", "1005", "1006", "1007")
+        )
+        for codigo in formatos_objetivo:
+            GenClass = GENERADORES[codigo]
             gen = GenClass(ctx)
             dataframes[codigo] = gen.generar(df_filtrado)
 
