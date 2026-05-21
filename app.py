@@ -5,6 +5,7 @@ import io
 import os
 import shutil
 import tempfile
+from copy import copy
 from pathlib import Path
 
 import pandas as pd
@@ -13,7 +14,7 @@ from flask import (
     Flask, flash, redirect, render_template, request, send_file, session, url_for,
 )
 from flask_login import login_required
-from openpyxl import Workbook
+from openpyxl import Workbook, load_workbook
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from sqlalchemy.engine import make_url
 from sqlalchemy.exc import ArgumentError
@@ -270,7 +271,9 @@ def _registrar_rutas(app: Flask) -> None:
 
         nit_archivo = secure_filename(nit_inf) or "INFORMANTE"
         nombre_archivo = f"Exogena_AG{ano}_{nit_archivo}.xlsx"
-        archivo = _crear_xlsx_consolidado(dataframes, ctx, df_filtrado)
+        archivo_origen_nombre = session.get("archivo_nombre", "")
+        archivo_origen = (_user_dir("") / archivo_origen_nombre) if archivo_origen_nombre else None
+        archivo = _crear_xlsx_consolidado(dataframes, ctx, df_filtrado, archivo_origen)
         return send_file(
             archivo,
             as_attachment=True,
@@ -394,6 +397,9 @@ def _registrar_rutas(app: Flask) -> None:
         dv_str = request.form.get("dv", "").strip()
         if dv_str.isdigit():
             datos["dv"] = int(dv_str)
+        tdoc = _entero_form(request.form.get("tdoc"), 0)
+        if tdoc:
+            datos["tdoc"] = tdoc
         datos = {k: v for k, v in datos.items() if v not in ("", None)}
         directorio.actualizar_manual(nid, datos)
         flash(f"Tercero {nid} actualizado.", "ok")
@@ -413,13 +419,19 @@ def _registrar_rutas(app: Flask) -> None:
 # ---------------- exportación XLSX en memoria ----------------
 
 
-def _crear_xlsx_consolidado(dataframes: dict[str, pd.DataFrame], ctx: ContextoInformante, df_origen: pd.DataFrame) -> io.BytesIO:
+def _crear_xlsx_consolidado(
+    dataframes: dict[str, pd.DataFrame],
+    ctx: ContextoInformante,
+    df_origen: pd.DataFrame,
+    archivo_origen: Path | None = None,
+) -> io.BytesIO:
     wb = Workbook()
     ws = wb.active
     ws.title = "Resumen"
     _llenar_resumen(ws, df_origen, ctx)
     ws = wb.create_sheet(title="Informe")
-    _llenar_informe_referencia(ws, df_origen, ctx)
+    if not _copiar_primera_hoja_cargada(archivo_origen, ws):
+        _llenar_informe_normalizado(ws, df_origen)
     ws = wb.create_sheet(title="Índice")
     ws.cell(1, 1, value=f"Exógena DIAN AG{ctx.ano_gravable}").font = Font(bold=True, size=14)
     ws.cell(2, 1, value=f"Informante: {ctx.nit} - {ctx.razon_social}")
@@ -585,66 +597,68 @@ def _llenar_resumen(ws, df: pd.DataFrame, ctx: ContextoInformante) -> None:
         ws.row_dimensions[row].height = 24
 
 
-def _bordes_informe(row_inicio: int, row_fin: int, row: int, col: int) -> Border:
-    return Border(
-        left=Side(style="thick" if col == 1 else "thin", color="000000"),
-        right=Side(style="thick" if col == 3 else "thin", color="000000"),
-        top=Side(style="thick" if row == row_inicio else "thin", color="000000"),
-        bottom=Side(style="thick" if row == row_fin else "thin", color="000000"),
-    )
+def _copiar_primera_hoja_cargada(archivo_origen: Path | None, destino) -> bool:
+    if not archivo_origen or not archivo_origen.exists():
+        return False
+    try:
+        wb_origen = load_workbook(archivo_origen, data_only=False)
+    except Exception:
+        return False
+
+    origen = wb_origen.worksheets[0]
+    destino.sheet_view.showGridLines = origen.sheet_view.showGridLines
+    destino.freeze_panes = origen.freeze_panes
+    destino.auto_filter.ref = origen.auto_filter.ref
+    destino.sheet_format.defaultColWidth = origen.sheet_format.defaultColWidth
+    destino.sheet_format.defaultRowHeight = origen.sheet_format.defaultRowHeight
+
+    for rango in origen.merged_cells.ranges:
+        destino.merge_cells(str(rango))
+
+    for col, dimension in origen.column_dimensions.items():
+        nueva = destino.column_dimensions[col]
+        nueva.width = dimension.width
+        nueva.hidden = dimension.hidden
+        nueva.outlineLevel = dimension.outlineLevel
+
+    for idx, dimension in origen.row_dimensions.items():
+        nueva = destino.row_dimensions[idx]
+        nueva.height = dimension.height
+        nueva.hidden = dimension.hidden
+        nueva.outlineLevel = dimension.outlineLevel
+
+    for fila in origen.iter_rows():
+        for celda in fila:
+            nueva = destino[celda.coordinate]
+            nueva.value = celda.value
+            if celda.has_style:
+                nueva._style = copy(celda._style)
+            if celda.hyperlink:
+                nueva._hyperlink = copy(celda.hyperlink)
+            if celda.comment:
+                nueva.comment = copy(celda.comment)
+
+    destino.sheet_properties.pageSetUpPr = copy(origen.sheet_properties.pageSetUpPr)
+    destino.page_margins = copy(origen.page_margins)
+    destino.page_setup = copy(origen.page_setup)
+    return True
 
 
-def _fila_informe(ws, fila: int, etiqueta: str, valor: float | None, row_inicio: int, row_fin: int) -> None:
-    ws.cell(fila, 1, value=etiqueta)
-    ws.cell(fila, 2, value="$")
-    ws.cell(fila, 3, value="-" if valor in (None, 0) else round(valor))
-    for col in range(1, 4):
-        celda = ws.cell(fila, col)
-        celda.border = _bordes_informe(row_inicio, row_fin, fila, col)
-        celda.font = Font(size=20)
-        celda.alignment = Alignment(vertical="center")
-    ws.cell(fila, 2).alignment = Alignment(horizontal="center", vertical="center")
-    ws.cell(fila, 3).alignment = Alignment(horizontal="right", vertical="center")
-    if valor not in (None, 0):
-        ws.cell(fila, 3).number_format = '#,##0;[Red]-#,##0;"-"'
-
-
-def _bloque_informe(ws, fila: int, filas: list[tuple[str, float | None]]) -> int:
-    row_inicio = fila
-    row_fin = fila + len(filas) - 1
-    for etiqueta, valor in filas:
-        _fila_informe(ws, fila, etiqueta, valor, row_inicio, row_fin)
-        fila += 1
-    return fila + 2
-
-
-def _llenar_informe_referencia(ws, df: pd.DataFrame, ctx: ContextoInformante) -> None:
-    resumen = _resumen_empresa(df, ctx)
-    ws.sheet_view.showGridLines = False
-    ws.column_dimensions["A"].width = 48
-    ws.column_dimensions["B"].width = 5
-    ws.column_dimensions["C"].width = 20
-
-    fila = 2
-    fila = _bloque_informe(ws, fila, [
-        ("TOTAL FACTURADO", resumen["ingresos_netos"]),
-        ("IVA GENERADO", resumen["iva_generado"]),
-        ("TOTAL", resumen["total_ingresos"]),
-    ])
-    fila = _bloque_informe(ws, fila, [
-        ("TOTAL GASTOS", resumen["gastos_netos"]),
-        ("IVA DESCONTABLE/MAYOR VALOR", resumen["iva_descontable"]),
-        ("TOTAL GASTOS IVA INCLUÍDO", resumen["total_gastos"]),
-    ])
-    fila = _bloque_informe(ws, fila, [
-        ("NOMINA", resumen["nomina"]),
-    ])
-    _bloque_informe(ws, fila, [
-        ("UTILIDAD", resumen["utilidad_estimada"]),
-    ])
-
-    for row in range(1, fila + 3):
-        ws.row_dimensions[row].height = 36
+def _llenar_informe_normalizado(ws, df: pd.DataFrame) -> None:
+    ws.cell(1, 1, value="Informe cargado")
+    ws.cell(1, 1).font = Font(bold=True, size=14)
+    ws.cell(2, 1, value="No se encontró el XLSX original guardado; se muestra la data normalizada usada para procesar.")
+    ws.cell(2, 1).font = Font(italic=True, color="6B7280")
+    columnas = list(df.columns)
+    for col_idx, nombre in enumerate(columnas, 1):
+        celda = ws.cell(4, col_idx, value=nombre)
+        celda.font = Font(bold=True)
+        celda.fill = PatternFill("solid", fgColor="FFE4B5")
+    for row_idx, (_, row) in enumerate(df.iterrows(), 5):
+        for col_idx, nombre in enumerate(columnas, 1):
+            ws.cell(row_idx, col_idx, value=row.get(nombre))
+    for col_idx, nombre in enumerate(columnas, 1):
+        ws.column_dimensions[ws.cell(4, col_idx).column_letter].width = max(12, min(32, len(str(nombre)) + 2))
 
 
 def _llenar_hoja(ws, df: pd.DataFrame, codigo: str, ctx: ContextoInformante, with_meta: bool):

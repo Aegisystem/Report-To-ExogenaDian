@@ -1,7 +1,12 @@
 {% extends "base.html" %}
 {% block body %}
-<h1>Directorio de terceros</h1>
-<p class="muted">Cache local con datos enriquecidos (dirección, dpto, mun, DV) para completar el 1001 y otros formatos. <strong>{{ total }}</strong> terceros registrados.</p>
+<div class="page-heading">
+  <div>
+    <h1>Directorio de terceros</h1>
+    <p class="muted">Cache local con datos enriquecidos (dirección, dpto, mun, DV) para completar el 1001 y otros formatos. <strong>{{ total }}</strong> terceros registrados.</p>
+  </div>
+  <a class="btn btn-secondary" href="{{ url_for('index') }}">← Volver</a>
+</div>
 
 <div class="box">
   <strong>1. Importar XML UBL de facturas (fuente principal)</strong>
@@ -67,10 +72,12 @@
 </div>
 
 <div class="box">
-  <strong>4. Agregar / editar tercero manualmente</strong>
-  <form method="post" action="{{ url_for('editar_tercero') }}">
+  <strong id="form-title">4. Agregar tercero manualmente</strong>
+  <p class="muted" id="form-hint">También puedes usar el botón Editar de la tabla para cargar aquí los datos existentes.</p>
+  <form id="tercero-form" method="post" action="{{ url_for('editar_tercero') }}">
     <div class="row">
       <div><label>NIT</label><input type="text" name="nid" required></div>
+      <div><label>Tipo doc</label><input type="number" name="tdoc" min="0" max="99"></div>
       <div><label>DV</label><input type="number" name="dv" min="0" max="9"></div>
       <div><label>País (default 169=Colombia)</label><input type="number" name="pais" value="169"></div>
     </div>
@@ -91,6 +98,7 @@
     </div>
     <div style="margin-top:16px;">
       <button type="submit">Guardar</button>
+      <button type="button" class="btn-secondary" id="limpiar-form-tercero">Nuevo tercero</button>
     </div>
   </form>
 </div>
@@ -104,26 +112,30 @@
 
 {% if terceros %}
 <h2>Contenido ({{ total }})</h2>
-<table>
+<div class="table-toolbar">
+  <input type="text" id="buscar-tercero" placeholder="Buscar por NIT, nombre, dirección, dpto o municipio">
+  <span class="muted" id="resultado-busqueda">{{ total }} terceros</span>
+</div>
+<table id="tabla-terceros">
   <thead>
     <tr>
-      <th>NIT</th><th>DV</th><th>Razón / Nombre</th><th>Dirección</th><th>Dpto</th><th>Mun</th><th>País</th><th></th>
+      <th>NIT</th><th>Tipo</th><th>DV</th><th>Razón / Nombre</th><th>Dirección</th><th>Dpto</th><th>Mun</th><th>País</th><th></th>
     </tr>
   </thead>
   <tbody>
     {% for nid, t in terceros.items() %}
-    <tr>
+    {% set nombre_visible = t.raz if t.raz else ((t.apl1 or '') ~ ' ' ~ (t.apl2 or '') ~ ' ' ~ (t.nom1 or '') ~ ' ' ~ (t.nom2 or '')) %}
+    <tr data-search="{{ (nid ~ ' ' ~ (t.tdoc or '') ~ ' ' ~ (t.dv if t.dv is not none else '') ~ ' ' ~ nombre_visible ~ ' ' ~ (t.dir or '') ~ ' ' ~ (t.dpto or '') ~ ' ' ~ (t.mun or '') ~ ' ' ~ (t.pais or ''))|lower }}">
       <td><code>{{ nid }}</code></td>
+      <td>{{ t.tdoc or '' }}</td>
       <td>{{ t.dv if t.dv is not none else '' }}</td>
-      <td>
-        {% if t.raz %}{{ t.raz }}
-        {% else %}{{ t.apl1 or '' }} {{ t.apl2 or '' }} {{ t.nom1 or '' }} {{ t.nom2 or '' }}{% endif %}
-      </td>
+      <td>{{ nombre_visible }}</td>
       <td>{{ t.dir or '' }}</td>
       <td>{{ t.dpto or '' }}</td>
       <td>{{ t.mun or '' }}</td>
       <td>{{ t.pais or '' }}</td>
       <td>
+        <button type="button" class="btn-secondary btn-sm editar-tercero" data-nid="{{ nid }}">Editar</button>
         <form method="post" action="{{ url_for('eliminar_tercero') }}" style="display:inline">
           <input type="hidden" name="nid" value="{{ nid }}">
           <button type="submit" class="btn-secondary" style="padding:4px 10px;font-size:12px;" onclick="return confirm('¿Eliminar {{ nid }}?')">✕</button>
@@ -138,4 +150,66 @@
 <div style="margin-top: 24px;">
   <a class="btn btn-secondary" href="{{ url_for('index') }}">← Volver</a>
 </div>
+
+<script id="terceros-data" type="application/json">{{ terceros|tojson }}</script>
+<script>
+  const terceros = JSON.parse(document.getElementById('terceros-data').textContent || '{}');
+  const form = document.getElementById('tercero-form');
+  const formTitle = document.getElementById('form-title');
+  const formHint = document.getElementById('form-hint');
+  const search = document.getElementById('buscar-tercero');
+  const result = document.getElementById('resultado-busqueda');
+  const rows = Array.from(document.querySelectorAll('#tabla-terceros tbody tr'));
+
+  function setValue(name, value) {
+    const input = form.querySelector(`[name="${name}"]`);
+    if (input) input.value = value ?? '';
+  }
+
+  function resetForm() {
+    form.reset();
+    setValue('pais', '169');
+    formTitle.textContent = '4. Agregar tercero manualmente';
+    formHint.textContent = 'También puedes usar el botón Editar de la tabla para cargar aquí los datos existentes.';
+    form.querySelector('[name="nid"]').readOnly = false;
+  }
+
+  document.querySelectorAll('.editar-tercero').forEach((button) => {
+    button.addEventListener('click', () => {
+      const nid = button.dataset.nid;
+      const tercero = terceros[nid] || {};
+      setValue('nid', nid);
+      setValue('tdoc', tercero.tdoc || '');
+      setValue('dv', tercero.dv ?? '');
+      setValue('pais', tercero.pais || 169);
+      setValue('raz', tercero.raz || '');
+      setValue('apl1', tercero.apl1 || '');
+      setValue('apl2', tercero.apl2 || '');
+      setValue('nom1', tercero.nom1 || '');
+      setValue('nom2', tercero.nom2 || '');
+      setValue('dir', tercero.dir || '');
+      setValue('dpto', tercero.dpto || '');
+      setValue('mun', tercero.mun || '');
+      formTitle.textContent = `4. Editando tercero ${nid}`;
+      formHint.textContent = 'Ajusta solo los campos necesarios y guarda.';
+      form.querySelector('[name="nid"]').readOnly = true;
+      form.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+  });
+
+  document.getElementById('limpiar-form-tercero').addEventListener('click', resetForm);
+
+  if (search) {
+    search.addEventListener('input', () => {
+      const term = search.value.trim().toLowerCase();
+      let visibles = 0;
+      rows.forEach((row) => {
+        const visible = !term || row.dataset.search.includes(term);
+        row.style.display = visible ? '' : 'none';
+        if (visible) visibles += 1;
+      });
+      result.textContent = `${visibles} de ${rows.length} terceros`;
+    });
+  }
+</script>
 {% endblock %}

@@ -19,6 +19,7 @@ h2 { color: #1e3a8a; border-bottom: 2px solid #e2e8f0; padding-bottom: 8px; }
 .logo { color: #c0392b; font-weight: bold; font-size: 14px; letter-spacing: 1px; }
 .topbar { display: flex; justify-content: space-between; align-items: center; }
 .userbox { display: flex; gap: 8px; align-items: center; }
+.page-heading { display: flex; justify-content: space-between; gap: 16px; align-items: flex-start; }
 .btn-sm { padding: 6px 12px; font-size: 12px; }
 .subtitle { color: #6b7280; font-size: 14px; margin-top: -8px; }
 label { display: block; font-weight: 600; margin: 16px 0 6px; color: #374151; }
@@ -48,6 +49,8 @@ th { background: #f9fafb; color: #374151; font-weight: 600; }
 .row { display: flex; gap: 16px; }
 .row > * { flex: 1; }
 .box { background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 8px; padding: 16px; margin: 16px 0; }
+.table-toolbar { display: flex; gap: 12px; align-items: center; margin: 12px 0; }
+.table-toolbar input { flex: 1; margin: 0; }
 .muted { color: #6b7280; font-size: 13px; }
 .tag {
   display: inline-block; background: #dbeafe; color: #1e40af;
