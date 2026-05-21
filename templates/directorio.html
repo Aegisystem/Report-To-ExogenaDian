@@ -103,13 +103,6 @@
   </form>
 </div>
 
-<div class="box">
-  <strong>5. Limpiar directorio</strong>
-  <form method="post" action="{{ url_for('limpiar_directorio') }}" onsubmit="return confirm('¿Borrar todo el directorio?')">
-    <button type="submit" class="btn-secondary">Borrar todo</button>
-  </form>
-</div>
-
 {% if terceros %}
 <h2>Contenido ({{ total }})</h2>
 <div class="table-toolbar">
@@ -134,12 +127,18 @@
       <td>{{ t.dpto or '' }}</td>
       <td>{{ t.mun or '' }}</td>
       <td>{{ t.pais or '' }}</td>
-      <td>
-        <button type="button" class="btn-secondary btn-sm editar-tercero" data-nid="{{ nid }}">Editar</button>
-        <form method="post" action="{{ url_for('eliminar_tercero') }}" style="display:inline">
-          <input type="hidden" name="nid" value="{{ nid }}">
-          <button type="submit" class="btn-secondary" style="padding:4px 10px;font-size:12px;" onclick="return confirm('¿Eliminar {{ nid }}?')">✕</button>
-        </form>
+      <td class="actions-cell">
+        <div class="row-actions">
+          <button type="button" class="btn-sm btn-icon btn-edit editar-tercero" data-nid="{{ nid }}" title="Editar tercero">
+            <span aria-hidden="true">✎</span> Editar
+          </button>
+          <form method="post" action="{{ url_for('eliminar_tercero') }}">
+            <input type="hidden" name="nid" value="{{ nid }}">
+            <button type="submit" class="btn-sm btn-icon btn-danger" onclick="return confirm('¿Eliminar {{ nid }}?')" title="Eliminar tercero">
+              <span aria-hidden="true">✕</span> Eliminar
+            </button>
+          </form>
+        </div>
       </td>
     </tr>
     {% endfor %}

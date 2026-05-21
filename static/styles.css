@@ -41,6 +41,11 @@ button:hover, .btn:hover { background: #1e3a8a; }
 .btn-secondary:hover { background: #4b5563; }
 .btn-success { background: #047857; }
 .btn-success:hover { background: #065f46; }
+.btn-edit { background: #2563eb; }
+.btn-edit:hover { background: #1d4ed8; }
+.btn-danger { background: #dc2626; }
+.btn-danger:hover { background: #b91c1c; }
+.btn-icon { display: inline-flex; align-items: center; justify-content: center; gap: 6px; }
 table { width: 100%; border-collapse: collapse; margin: 16px 0; }
 th, td { text-align: left; padding: 8px 12px; border-bottom: 1px solid #e5e7eb; font-size: 14px; }
 th { background: #f9fafb; color: #374151; font-weight: 600; }
@@ -51,6 +56,10 @@ th { background: #f9fafb; color: #374151; font-weight: 600; }
 .box { background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 8px; padding: 16px; margin: 16px 0; }
 .table-toolbar { display: flex; gap: 12px; align-items: center; margin: 12px 0; }
 .table-toolbar input { flex: 1; margin: 0; }
+.actions-cell { width: 1%; white-space: nowrap; }
+.row-actions { display: flex; align-items: center; justify-content: flex-end; gap: 8px; flex-wrap: nowrap; }
+.row-actions form { display: inline-flex; margin: 0; }
+.row-actions .btn-sm { padding: 6px 10px; line-height: 1; }
 .muted { color: #6b7280; font-size: 13px; }
 .tag {
   display: inline-block; background: #dbeafe; color: #1e40af;
