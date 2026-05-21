@@ -14,7 +14,7 @@ from flask import (
 )
 from flask_login import login_required
 from openpyxl import Workbook
-from openpyxl.styles import Font, PatternFill
+from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from sqlalchemy.engine import make_url
 from sqlalchemy.exc import ArgumentError
 from werkzeug.utils import secure_filename
@@ -270,7 +270,7 @@ def _registrar_rutas(app: Flask) -> None:
 
         nit_archivo = secure_filename(nit_inf) or "INFORMANTE"
         nombre_archivo = f"Exogena_AG{ano}_{nit_archivo}.xlsx"
-        archivo = _crear_xlsx_consolidado(dataframes, ctx)
+        archivo = _crear_xlsx_consolidado(dataframes, ctx, df_filtrado)
         return send_file(
             archivo,
             as_attachment=True,
@@ -413,10 +413,14 @@ def _registrar_rutas(app: Flask) -> None:
 # ---------------- exportación XLSX en memoria ----------------
 
 
-def _crear_xlsx_consolidado(dataframes: dict[str, pd.DataFrame], ctx: ContextoInformante) -> io.BytesIO:
+def _crear_xlsx_consolidado(dataframes: dict[str, pd.DataFrame], ctx: ContextoInformante, df_origen: pd.DataFrame) -> io.BytesIO:
     wb = Workbook()
     ws = wb.active
-    ws.title = "Índice"
+    ws.title = "Resumen"
+    _llenar_resumen(ws, df_origen, ctx)
+    ws = wb.create_sheet(title="Informe")
+    _llenar_informe_referencia(ws, df_origen, ctx)
+    ws = wb.create_sheet(title="Índice")
     ws.cell(1, 1, value=f"Exógena DIAN AG{ctx.ano_gravable}").font = Font(bold=True, size=14)
     ws.cell(2, 1, value=f"Informante: {ctx.nit} - {ctx.razon_social}")
     ws.cell(3, 1, value=f"Periodo: meses {ctx.mes_inicio:02d} a {ctx.mes_fin:02d}")
@@ -440,6 +444,207 @@ def _crear_xlsx_consolidado(dataframes: dict[str, pd.DataFrame], ctx: ContextoIn
     wb.save(archivo)
     archivo.seek(0)
     return archivo
+
+
+def _resumen_empresa(df: pd.DataFrame, ctx: ContextoInformante) -> dict[str, float]:
+    catalogo = registry.catalogo_tipos()
+    formato_ingresos = "5248" if ctx.es_participante_colaboracion else "1007"
+    formato_gastos = "5247" if ctx.es_participante_colaboracion else "1001"
+    reglas_ingresos = registry.regla_para_formato(formato_ingresos)
+    reglas_gastos = registry.regla_para_formato(formato_gastos)
+    out = {
+        "ingresos_brutos": 0.0,
+        "devoluciones_ingresos": 0.0,
+        "iva_generado": 0.0,
+        "total_ingresos": 0.0,
+        "gastos_brutos": 0.0,
+        "devoluciones_gastos": 0.0,
+        "iva_descontable": 0.0,
+        "total_gastos": 0.0,
+        "nomina": 0.0,
+    }
+
+    for _, row in df.iterrows():
+        tipo = str(row.get("tipo_documento", "") or "").strip()
+        grupo = str(row.get("grupo", "") or "").strip()
+        if registry.es_tipo_nomina(tipo):
+            cat, signo = "nomina", 1
+        else:
+            info = catalogo.get(tipo, {})
+            cat = str(info.get("categoria", "") or "")
+            signo = int(info.get("signo", 1) or 1)
+        if not cat or cat in ("ignorar",):
+            continue
+
+        base = float(row.get("base", 0) or 0)
+        iva = float(row.get("iva", 0) or 0)
+        total = float(row.get("total", 0) or 0)
+        base_firmada = base * signo
+        iva_firmado = iva * signo
+        total_firmado = total * signo
+        regla = (cat, grupo)
+
+        if cat == "nomina":
+            out["nomina"] += max(base_firmada, 0)
+        elif regla in reglas_ingresos:
+            if base_firmada >= 0:
+                out["ingresos_brutos"] += base_firmada
+            else:
+                out["devoluciones_ingresos"] += abs(base_firmada)
+            out["iva_generado"] += iva_firmado
+            out["total_ingresos"] += total_firmado
+        elif regla in reglas_gastos:
+            if base_firmada >= 0:
+                out["gastos_brutos"] += base_firmada
+            else:
+                out["devoluciones_gastos"] += abs(base_firmada)
+            out["iva_descontable"] += iva_firmado
+            out["total_gastos"] += total_firmado
+
+    out["ingresos_netos"] = out["ingresos_brutos"] - out["devoluciones_ingresos"]
+    out["gastos_netos"] = out["gastos_brutos"] - out["devoluciones_gastos"]
+    out["utilidad_estimada"] = out["ingresos_netos"] - out["gastos_netos"] - out["nomina"]
+    return out
+
+
+def _valor_resumen(ws, fila: int, etiqueta: str, valor: float | None, *, fuerte: bool = False) -> None:
+    ws.cell(fila, 1, value=etiqueta)
+    ws.cell(fila, 2, value="$" if valor is not None else "")
+    ws.cell(fila, 3, value="-" if valor in (None, 0) else round(valor))
+    for col in range(1, 4):
+        celda = ws.cell(fila, col)
+        celda.border = Border(bottom=Side(style="thin", color="D1D5DB"))
+        celda.alignment = Alignment(vertical="center")
+        if fuerte:
+            celda.font = Font(bold=True)
+            celda.fill = PatternFill("solid", fgColor="F3F4F6")
+    ws.cell(fila, 2).alignment = Alignment(horizontal="center", vertical="center")
+    ws.cell(fila, 3).alignment = Alignment(horizontal="right", vertical="center")
+    if valor not in (None, 0):
+        ws.cell(fila, 3).number_format = '#,##0;[Red]-#,##0;"-"'
+
+
+def _seccion_resumen(ws, fila: int, titulo: str) -> None:
+    ws.merge_cells(start_row=fila, start_column=1, end_row=fila, end_column=3)
+    celda = ws.cell(fila, 1, value=titulo)
+    celda.font = Font(bold=True, color="FFFFFF")
+    celda.fill = PatternFill("solid", fgColor="1E3A8A")
+    celda.alignment = Alignment(horizontal="left", vertical="center")
+
+
+def _llenar_resumen(ws, df: pd.DataFrame, ctx: ContextoInformante) -> None:
+    resumen = _resumen_empresa(df, ctx)
+    ws.sheet_view.showGridLines = False
+    ws.merge_cells("A1:C1")
+    ws.cell(1, 1, value="Resumen financiero").font = Font(bold=True, size=18, color="1E3A8A")
+    ws.cell(2, 1, value=f"{ctx.razon_social} · NIT {ctx.nit}")
+    ws.cell(3, 1, value=f"Año gravable {ctx.ano_gravable} · Meses {ctx.mes_inicio:02d} a {ctx.mes_fin:02d}")
+    ws.cell(4, 1, value="Valores estimados desde el XLSX MUISCA cargado. Utilidad calculada sobre bases sin IVA.")
+    ws.cell(4, 1).font = Font(italic=True, color="6B7280")
+
+    fila = 6
+    _seccion_resumen(ws, fila, "Ingresos")
+    fila += 1
+    _valor_resumen(ws, fila, "Ingresos brutos", resumen["ingresos_brutos"])
+    fila += 1
+    _valor_resumen(ws, fila, "Devoluciones, rebajas y descuentos", resumen["devoluciones_ingresos"])
+    fila += 1
+    _valor_resumen(ws, fila, "Ingresos netos", resumen["ingresos_netos"], fuerte=True)
+    fila += 1
+    _valor_resumen(ws, fila, "IVA generado neto", resumen["iva_generado"])
+    fila += 1
+    _valor_resumen(ws, fila, "Total ingresos con IVA", resumen["total_ingresos"], fuerte=True)
+
+    fila += 2
+    _seccion_resumen(ws, fila, "Gastos y costos")
+    fila += 1
+    _valor_resumen(ws, fila, "Gastos / costos brutos", resumen["gastos_brutos"])
+    fila += 1
+    _valor_resumen(ws, fila, "Devoluciones en gastos", resumen["devoluciones_gastos"])
+    fila += 1
+    _valor_resumen(ws, fila, "Gastos / costos netos", resumen["gastos_netos"], fuerte=True)
+    fila += 1
+    _valor_resumen(ws, fila, "IVA descontable / mayor valor neto", resumen["iva_descontable"])
+    fila += 1
+    _valor_resumen(ws, fila, "Total gastos con IVA", resumen["total_gastos"], fuerte=True)
+
+    fila += 2
+    _seccion_resumen(ws, fila, "Nómina")
+    fila += 1
+    _valor_resumen(ws, fila, "Nómina identificada", resumen["nomina"], fuerte=True)
+
+    fila += 2
+    _seccion_resumen(ws, fila, "Resultado estimado")
+    fila += 1
+    _valor_resumen(ws, fila, "Utilidad estimada sin IVA", resumen["utilidad_estimada"], fuerte=True)
+
+    ws.column_dimensions["A"].width = 42
+    ws.column_dimensions["B"].width = 5
+    ws.column_dimensions["C"].width = 18
+    for row in range(1, fila + 1):
+        ws.row_dimensions[row].height = 24
+
+
+def _bordes_informe(row_inicio: int, row_fin: int, row: int, col: int) -> Border:
+    return Border(
+        left=Side(style="thick" if col == 1 else "thin", color="000000"),
+        right=Side(style="thick" if col == 3 else "thin", color="000000"),
+        top=Side(style="thick" if row == row_inicio else "thin", color="000000"),
+        bottom=Side(style="thick" if row == row_fin else "thin", color="000000"),
+    )
+
+
+def _fila_informe(ws, fila: int, etiqueta: str, valor: float | None, row_inicio: int, row_fin: int) -> None:
+    ws.cell(fila, 1, value=etiqueta)
+    ws.cell(fila, 2, value="$")
+    ws.cell(fila, 3, value="-" if valor in (None, 0) else round(valor))
+    for col in range(1, 4):
+        celda = ws.cell(fila, col)
+        celda.border = _bordes_informe(row_inicio, row_fin, fila, col)
+        celda.font = Font(size=20)
+        celda.alignment = Alignment(vertical="center")
+    ws.cell(fila, 2).alignment = Alignment(horizontal="center", vertical="center")
+    ws.cell(fila, 3).alignment = Alignment(horizontal="right", vertical="center")
+    if valor not in (None, 0):
+        ws.cell(fila, 3).number_format = '#,##0;[Red]-#,##0;"-"'
+
+
+def _bloque_informe(ws, fila: int, filas: list[tuple[str, float | None]]) -> int:
+    row_inicio = fila
+    row_fin = fila + len(filas) - 1
+    for etiqueta, valor in filas:
+        _fila_informe(ws, fila, etiqueta, valor, row_inicio, row_fin)
+        fila += 1
+    return fila + 2
+
+
+def _llenar_informe_referencia(ws, df: pd.DataFrame, ctx: ContextoInformante) -> None:
+    resumen = _resumen_empresa(df, ctx)
+    ws.sheet_view.showGridLines = False
+    ws.column_dimensions["A"].width = 48
+    ws.column_dimensions["B"].width = 5
+    ws.column_dimensions["C"].width = 20
+
+    fila = 2
+    fila = _bloque_informe(ws, fila, [
+        ("TOTAL FACTURADO", resumen["ingresos_netos"]),
+        ("IVA GENERADO", resumen["iva_generado"]),
+        ("TOTAL", resumen["total_ingresos"]),
+    ])
+    fila = _bloque_informe(ws, fila, [
+        ("TOTAL GASTOS", resumen["gastos_netos"]),
+        ("IVA DESCONTABLE/MAYOR VALOR", resumen["iva_descontable"]),
+        ("TOTAL GASTOS IVA INCLUÍDO", resumen["total_gastos"]),
+    ])
+    fila = _bloque_informe(ws, fila, [
+        ("NOMINA", resumen["nomina"]),
+    ])
+    _bloque_informe(ws, fila, [
+        ("UTILIDAD", resumen["utilidad_estimada"]),
+    ])
+
+    for row in range(1, fila + 3):
+        ws.row_dimensions[row].height = 36
 
 
 def _llenar_hoja(ws, df: pd.DataFrame, codigo: str, ctx: ContextoInformante, with_meta: bool):
