@@ -35,11 +35,6 @@ export HOST_XMLS_DIR="/Users/tuusuario/ruta/a/xmls"
 docker compose up --build
 # Abre http://127.0.0.1:5050/ y registra tu cuenta
 ```
-
-En Coolify, crea la variable `DATABASE_URL` con solo el valor de la URL. No incluyas
-`DATABASE_URL=`, no uses comillas, y si el password tiene caracteres como `@`, `#`,
-`/`, `%` o `&`, usa la version codificada para URL.
-
 Si usas importación por ruta local dentro de Docker, escribe esta ruta en la app:
 
 ```text
