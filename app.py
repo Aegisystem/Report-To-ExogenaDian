@@ -5,7 +5,6 @@ import io
 import os
 import shutil
 import tempfile
-from copy import copy
 from pathlib import Path
 
 import pandas as pd
@@ -16,6 +15,8 @@ from flask import (
 from flask_login import login_required
 from openpyxl import Workbook, load_workbook
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
+from openpyxl.utils import get_column_letter
+from openpyxl.worksheet.table import Table, TableStyleInfo
 from sqlalchemy.engine import make_url
 from sqlalchemy.exc import ArgumentError
 from werkzeug.utils import secure_filename
@@ -606,59 +607,119 @@ def _copiar_primera_hoja_cargada(archivo_origen: Path | None, destino) -> bool:
         return False
 
     origen = wb_origen.worksheets[0]
-    destino.sheet_view.showGridLines = origen.sheet_view.showGridLines
-    destino.freeze_panes = origen.freeze_panes
-    destino.auto_filter.ref = origen.auto_filter.ref
-    destino.sheet_format.defaultColWidth = origen.sheet_format.defaultColWidth
-    destino.sheet_format.defaultRowHeight = origen.sheet_format.defaultRowHeight
+    limites = _rango_con_contenido(origen)
+    if not limites:
+        return False
 
-    for rango in origen.merged_cells.ranges:
-        destino.merge_cells(str(rango))
+    min_row, max_row, min_col, max_col = limites
+    for src_row in range(min_row, max_row + 1):
+        dst_row = src_row - min_row + 1
+        for src_col in range(min_col, max_col + 1):
+            dst_col = src_col - min_col + 1
+            origen_celda = origen.cell(src_row, src_col)
+            destino_celda = destino.cell(dst_row, dst_col, value=origen_celda.value)
+            destino_celda.number_format = origen_celda.number_format
 
-    for col, dimension in origen.column_dimensions.items():
-        nueva = destino.column_dimensions[col]
-        nueva.width = dimension.width
-        nueva.hidden = dimension.hidden
-        nueva.outlineLevel = dimension.outlineLevel
-
-    for idx, dimension in origen.row_dimensions.items():
-        nueva = destino.row_dimensions[idx]
-        nueva.height = dimension.height
-        nueva.hidden = dimension.hidden
-        nueva.outlineLevel = dimension.outlineLevel
-
-    for fila in origen.iter_rows():
-        for celda in fila:
-            nueva = destino[celda.coordinate]
-            nueva.value = celda.value
-            if celda.has_style:
-                nueva._style = copy(celda._style)
-            if celda.hyperlink:
-                nueva._hyperlink = copy(celda.hyperlink)
-            if celda.comment:
-                nueva.comment = copy(celda.comment)
-
-    destino.sheet_properties.pageSetUpPr = copy(origen.sheet_properties.pageSetUpPr)
-    destino.page_margins = copy(origen.page_margins)
-    destino.page_setup = copy(origen.page_setup)
+    _formatear_tabla_informe(destino, max_row - min_row + 1, max_col - min_col + 1)
     return True
 
 
 def _llenar_informe_normalizado(ws, df: pd.DataFrame) -> None:
-    ws.cell(1, 1, value="Informe cargado")
-    ws.cell(1, 1).font = Font(bold=True, size=14)
-    ws.cell(2, 1, value="No se encontró el XLSX original guardado; se muestra la data normalizada usada para procesar.")
-    ws.cell(2, 1).font = Font(italic=True, color="6B7280")
     columnas = list(df.columns)
+    if not columnas:
+        return
+
     for col_idx, nombre in enumerate(columnas, 1):
-        celda = ws.cell(4, col_idx, value=nombre)
-        celda.font = Font(bold=True)
-        celda.fill = PatternFill("solid", fgColor="FFE4B5")
-    for row_idx, (_, row) in enumerate(df.iterrows(), 5):
+        ws.cell(1, col_idx, value=nombre)
+    for row_idx, (_, row) in enumerate(df.iterrows(), 2):
         for col_idx, nombre in enumerate(columnas, 1):
-            ws.cell(row_idx, col_idx, value=row.get(nombre))
-    for col_idx, nombre in enumerate(columnas, 1):
-        ws.column_dimensions[ws.cell(4, col_idx).column_letter].width = max(12, min(32, len(str(nombre)) + 2))
+            ws.cell(row_idx, col_idx, value=_valor_excel(row.get(nombre)))
+    _formatear_tabla_informe(ws, len(df) + 1, len(columnas))
+
+
+def _rango_con_contenido(ws) -> tuple[int, int, int, int] | None:
+    min_row = min_col = None
+    max_row = max_col = 0
+    for fila in ws.iter_rows():
+        for celda in fila:
+            valor = celda.value
+            if valor is None or (isinstance(valor, str) and not valor.strip()):
+                continue
+            min_row = celda.row if min_row is None else min(min_row, celda.row)
+            min_col = celda.column if min_col is None else min(min_col, celda.column)
+            max_row = max(max_row, celda.row)
+            max_col = max(max_col, celda.column)
+    if min_row is None or min_col is None:
+        return None
+    return min_row, max_row, min_col, max_col
+
+
+def _valor_excel(valor):
+    if valor is None:
+        return None
+    try:
+        return None if pd.isna(valor) else valor
+    except (TypeError, ValueError):
+        return valor
+
+
+def _formatear_tabla_informe(ws, max_row: int, max_col: int) -> None:
+    if max_row < 1 or max_col < 1:
+        return
+
+    _asegurar_encabezados_tabla(ws, max_col)
+    ws.sheet_view.showGridLines = False
+    ws.freeze_panes = "A2" if max_row > 1 else None
+
+    borde = Border(bottom=Side(style="thin", color="E5E7EB"))
+    encabezado_fill = PatternFill("solid", fgColor="F3F4F6")
+    encabezado_font = Font(bold=True, size=10, color="111827")
+    cuerpo_font = Font(size=10, color="111827")
+    for row_idx in range(1, max_row + 1):
+        ws.row_dimensions[row_idx].height = 20
+        for col_idx in range(1, max_col + 1):
+            celda = ws.cell(row_idx, col_idx)
+            celda.border = borde
+            celda.alignment = Alignment(vertical="center", wrap_text=False)
+            if row_idx == 1:
+                celda.font = encabezado_font
+                celda.fill = encabezado_fill
+            else:
+                celda.font = cuerpo_font
+
+    for col_idx in range(1, max_col + 1):
+        letra = get_column_letter(col_idx)
+        muestras = [ws.cell(row_idx, col_idx).value for row_idx in range(1, min(max_row, 80) + 1)]
+        ancho = max(len(str(valor)) if valor is not None else 0 for valor in muestras)
+        ws.column_dimensions[letra].width = max(10, min(42, ancho + 2))
+
+    ref = f"A1:{get_column_letter(max_col)}{max_row}"
+    if max_row > 1:
+        tabla = Table(displayName="TablaInformeCargado", ref=ref)
+        tabla.tableStyleInfo = TableStyleInfo(
+            name="TableStyleLight1",
+            showFirstColumn=False,
+            showLastColumn=False,
+            showRowStripes=True,
+            showColumnStripes=False,
+        )
+        ws.add_table(tabla)
+    else:
+        ws.auto_filter.ref = ref
+
+
+def _asegurar_encabezados_tabla(ws, max_col: int) -> None:
+    vistos: dict[str, int] = {}
+    for col_idx in range(1, max_col + 1):
+        celda = ws.cell(1, col_idx)
+        nombre = str(celda.value).strip() if celda.value is not None else ""
+        if not nombre:
+            nombre = f"Columna {col_idx}"
+        veces = vistos.get(nombre, 0)
+        vistos[nombre] = veces + 1
+        if veces:
+            nombre = f"{nombre} {veces + 1}"
+        celda.value = nombre
 
 
 def _llenar_hoja(ws, df: pd.DataFrame, codigo: str, ctx: ContextoInformante, with_meta: bool):
