@@ -96,9 +96,9 @@ def preparar_dataframe_generacion(df: pd.DataFrame, ctx: ContextoInformante) -> 
         nombre_tercero_col.loc[mask_emitido] = out.loc[mask_emitido, "nombre_receptor"].fillna("").astype(str).str.strip()
 
     out["__grupo__"] = grupos
-    out["__nit_tercero__"] = nit_tercero_col.astype(str).str.replace(r"\D", "", regex=True)
+    out["__nit_tercero__"] = nit_tercero_col.map(helpers.normalizar_nit_sin_dv)
     out["__nombre_tercero__"] = nombre_tercero_col
-    out = out[out["__nit_tercero__"] != helpers.normalizar_nit(ctx.nit)]
+    out = out[out["__nit_tercero__"] != helpers.normalizar_nit_sin_dv(ctx.nit)]
     return out
 
 
@@ -179,7 +179,7 @@ class BaseFormato:
     def _info_tercero_valores(self, nit_raw: Any, nombre_raw: Any) -> dict[str, Any]:
         """Datos identificatorios del tercero. Comparte cache entre formatos."""
         nombre = str(nombre_raw or "").strip()
-        nid = helpers.normalizar_nit(nit_raw)
+        nid = helpers.normalizar_nit_sin_dv(nit_raw)
         cache_key = (nid, nombre)
         cached = self.ctx._terceros_info_cache.get(cache_key)
         if cached is not None:
@@ -193,8 +193,7 @@ class BaseFormato:
         if cache and cache.get("tdoc"):
             try:
                 cache_tdoc = int(cache["tdoc"])
-                if not (cache_tdoc == 31 and helpers.parece_persona_natural(nombre)):
-                    tdoc = cache_tdoc
+                tdoc = cache_tdoc
                 info["tdoc"] = tdoc
             except (TypeError, ValueError):
                 pass

@@ -93,16 +93,17 @@ def inferir_tipo_documento(nit: str, nombre: str | None = None) -> int:
     47=PEP, 48=PPT, 50=NIT otro pais, 91=NUIP."""
     if nit is None:
         return 43
-    s = re.sub(r"\D", "", str(nit))
+    s = normalizar_nit(nit)
     if not s:
         return 43
+    # NIT empresarial colombiano: 9 dígitos y empieza por 8 o 9. Si llega
+    # con DV pegado, suele quedar en 10 dígitos con el mismo prefijo.
+    if es_nit_colombiano(s):
+        return 31
     if nombre and parece_persona_juridica(nombre):
         return 31
     if nombre and parece_persona_natural(nombre):
         return 13
-    # NITs empresariales colombianos: 8xx, 9xx con 9-10 dígitos
-    if len(s) >= 9 and s[0] in ("8", "9"):
-        return 31
     # Cédulas: hasta 10 dígitos
     if len(s) <= 10:
         return 13
@@ -276,7 +277,28 @@ def _score_corte_nombre(nombres: list[str], apellidos: list[str]) -> float:
 def normalizar_nit(nit) -> str:
     if nit is None:
         return ""
-    return re.sub(r"\D", "", str(nit))
+    if isinstance(nit, float) and nit.is_integer():
+        return str(int(nit))
+    raw = str(nit).strip()
+    raw = re.sub(r"([,.])0+$", "", raw)
+    return re.sub(r"\D", "", raw)
+
+
+def normalizar_nit_sin_dv(nit) -> str:
+    s = normalizar_nit(nit)
+    if len(s) == 10 and s[0] in ("8", "9"):
+        base, posible_dv = s[:-1], s[-1]
+        dv = calcular_dv(base)
+        if dv is not None and str(dv) == posible_dv:
+            return base
+    return s
+
+
+def es_nit_colombiano(nit) -> bool:
+    s = normalizar_nit(nit)
+    if len(s) == 9 and s[0] in ("8", "9"):
+        return True
+    return len(s) == 10 and s[0] in ("8", "9")
 
 
 def _normalizar_codigo_dane(valor, ancho: int, tomar: str) -> str:

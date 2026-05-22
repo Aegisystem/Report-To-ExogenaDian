@@ -34,6 +34,30 @@ from db import NitNoEncontrado, Tercero, db, usuario_actual_id
 
 # ---------------- API básica ----------------
 
+def _nid_canonico(nid: str) -> str:
+    return helpers.normalizar_nit_sin_dv(nid)
+
+
+def _nid_candidatos(nid: str) -> list[str]:
+    limpio = helpers.normalizar_nit(nid)
+    if not limpio:
+        return []
+    candidatos: list[str] = []
+
+    def add(valor: str) -> None:
+        if valor and valor not in candidatos:
+            candidatos.append(valor)
+
+    add(limpio)
+    canonico = _nid_canonico(limpio)
+    add(canonico)
+    if len(canonico) == 9 and canonico[0] in ("8", "9"):
+        dv = helpers.calcular_dv(canonico)
+        if dv is not None:
+            add(f"{canonico}{dv}")
+    return candidatos
+
+
 def lookup(nid: str) -> dict[str, Any] | None:
     if not nid:
         return None
@@ -41,19 +65,37 @@ def lookup(nid: str) -> dict[str, Any] | None:
         uid = usuario_actual_id()
     except Exception:
         return None
-    nid = str(nid).strip()
+    candidatos = _nid_candidatos(nid)
+    if not candidatos:
+        return None
     if has_request_context():
         cache = getattr(g, "_directorio_lookup_cache", None)
         cache_uid = getattr(g, "_directorio_lookup_cache_uid", None)
         if cache is None or cache_uid != uid:
             rows = db.session.scalars(select(Tercero).where(Tercero.usuario_id == uid)).all()
-            cache = {t.nid: t.to_dict() for t in rows}
+            cache = {}
+            for t in rows:
+                data = t.to_dict()
+                cache.setdefault(t.nid, data)
+                for candidato in _nid_candidatos(t.nid):
+                    cache.setdefault(candidato, data)
             g._directorio_lookup_cache = cache
             g._directorio_lookup_cache_uid = uid
-        return cache.get(nid)
+        for candidato in candidatos:
+            encontrado = cache.get(candidato)
+            if encontrado:
+                return encontrado
+        return None
 
-    t = db.session.scalar(select(Tercero).where(Tercero.usuario_id == uid, Tercero.nid == nid))
-    return t.to_dict() if t else None
+    rows = db.session.scalars(
+        select(Tercero).where(Tercero.usuario_id == uid, Tercero.nid.in_(candidatos))
+    ).all()
+    por_nid = {t.nid: t for t in rows}
+    for candidato in candidatos:
+        t = por_nid.get(candidato)
+        if t:
+            return t.to_dict()
+    return None
 
 
 def _aplicar_campos(t: Tercero, datos: dict[str, Any]) -> None:
@@ -81,6 +123,12 @@ def _aplicar_campos(t: Tercero, datos: dict[str, Any]) -> None:
             v = helpers.normalizar_departamento(v)
         elif src == "mun":
             v = helpers.normalizar_municipio(v)
+        elif src == "tdoc" and helpers.es_nit_colombiano(t.nid):
+            try:
+                if int(v) == 13:
+                    v = 31
+            except (TypeError, ValueError):
+                pass
         if v in (None, "", 0):
             existente = getattr(t, dst, None)
             if existente not in (None, "", 0):
@@ -94,10 +142,13 @@ def upsert(nid: str, datos: dict[str, Any]) -> None:
     if not nid:
         return
     uid = usuario_actual_id()
-    nid = str(nid).strip()
+    candidatos = _nid_candidatos(nid)
+    nid = _nid_canonico(nid)
     if not nid:
         return
-    t = db.session.scalar(select(Tercero).where(Tercero.usuario_id == uid, Tercero.nid == nid))
+    t = db.session.scalar(
+        select(Tercero).where(Tercero.usuario_id == uid, Tercero.nid.in_(candidatos or [nid]))
+    )
     if t is None:
         t = Tercero(usuario_id=uid, nid=nid)
         db.session.add(t)
@@ -131,8 +182,12 @@ def limpiar() -> None:
 
 def eliminar(nid: str) -> None:
     uid = usuario_actual_id()
-    nid = str(nid).strip()
-    db.session.query(Tercero).filter_by(usuario_id=uid, nid=nid).delete()
+    candidatos = _nid_candidatos(nid)
+    if candidatos:
+        db.session.query(Tercero).filter(
+            Tercero.usuario_id == uid,
+            Tercero.nid.in_(candidatos),
+        ).delete(synchronize_session=False)
     db.session.commit()
 
 
@@ -140,7 +195,12 @@ def actualizar_manual(nid: str, datos: dict[str, Any]) -> None:
     upsert(nid, datos)
     # limpiar cache negativo si existía
     uid = usuario_actual_id()
-    db.session.query(NitNoEncontrado).filter_by(usuario_id=uid, nid=str(nid).strip()).delete()
+    candidatos = _nid_candidatos(nid)
+    if candidatos:
+        db.session.query(NitNoEncontrado).filter(
+            NitNoEncontrado.usuario_id == uid,
+            NitNoEncontrado.nid.in_(candidatos),
+        ).delete(synchronize_session=False)
     db.session.commit()
 
 
@@ -251,6 +311,8 @@ def _parsear_party(party: ET.Element) -> dict[str, Any]:
         nid = helpers.normalizar_nit(party_id.text or "")
         out["nid"] = nid
         tdoc = _tdoc_desde_party_id(party_id)
+        if tdoc == 13 and helpers.es_nit_colombiano(nid):
+            tdoc = 31
         if tdoc:
             out["tdoc"] = tdoc
         dv = _dv_desde_party_id(party_id, tdoc)
@@ -337,6 +399,8 @@ def _importar_formato_dian(root: ET.Element) -> list[dict[str, Any]]:
         data: dict[str, Any] = {"nid": nid, "fuente": "DIAN-Prevalidador"}
         if attrs.get("tdoc", "").isdigit():
             data["tdoc"] = int(attrs["tdoc"])
+            if data["tdoc"] == 13 and helpers.es_nit_colombiano(nid):
+                data["tdoc"] = 31
         if data.get("tdoc") != 13 and attrs.get("dv", "").isdigit():
             data["dv"] = int(attrs["dv"])
         for k in ("raz", "apl1", "apl2", "nom1", "nom2", "dir"):
@@ -413,14 +477,17 @@ def importar_carpeta(carpeta: Path) -> tuple[int, int]:
 
     def upsert_local(data: dict[str, Any]) -> None:
         nonlocal procesados
-        nid = data.get("nid")
+        nid_raw = data.get("nid")
+        nid = _nid_canonico(nid_raw)
         if not nid:
             return
-        t = existentes.get(nid)
+        candidatos = _nid_candidatos(nid_raw)
+        t = next((existentes.get(candidato) for candidato in candidatos if candidato in existentes), None)
         if t is None:
             t = Tercero(usuario_id=uid, nid=nid)
             db.session.add(t)
-            existentes[nid] = t
+        for candidato in (*candidatos, nid):
+            existentes[candidato] = t
         _aplicar_campos(t, data)
         procesados += 1
 
@@ -473,7 +540,7 @@ def consultar_remoto(nid: str, forzar: bool = False) -> dict[str, Any] | None:
 
     if not nid:
         return None
-    nid = str(nid).strip()
+    nid = _nid_canonico(nid)
     uid = usuario_actual_id()
 
     pos = lookup(nid)
@@ -536,7 +603,7 @@ def nits_faltantes_del_df(df) -> list[str]:
             nit = str(row.get("nit_receptor", "") or "").strip()
         else:
             continue
-        nit = helpers.normalizar_nit(nit)
+        nit = _nid_canonico(nit)
         if nit:
             nids.add(nit)
     try:
