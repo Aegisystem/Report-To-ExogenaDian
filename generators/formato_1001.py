@@ -10,14 +10,14 @@ class Formato1001(BaseFormato):
     CODIGO = "1001"
 
     def _filas(self, df: pd.DataFrame) -> list[dict[str, Any]]:
-        df_g = self._filtrar_aplicables(df)
+        agregados = self._agregados_por_tercero(df, ["base", "iva", "rete_renta", "rete_iva"])
         filas = []
-        for _nit, sub in self._agrupar_por_tercero(df_g).items():
-            info = self._info_tercero(sub)
-            base = self._suma_neta(sub, "base")
-            iva = self._suma_neta(sub, "iva")
-            ret_renta = self._suma_neta(sub, "rete_renta")
-            ret_iva = self._suma_neta(sub, "rete_iva")
+        for _, row in agregados.iterrows():
+            info = self._info_tercero_valores(row["__nit_tercero__"], row["__nombre_tercero__"])
+            base = row["base"]
+            iva = row["iva"]
+            ret_renta = row["rete_renta"]
+            ret_iva = row["rete_iva"]
             if base <= 0 and ret_renta <= 0 and ret_iva <= 0:
                 continue
             filas.append({

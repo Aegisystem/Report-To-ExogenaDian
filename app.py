@@ -16,6 +16,7 @@ from flask_login import login_required
 from openpyxl import Workbook, load_workbook
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
+from openpyxl.utils.dataframe import dataframe_to_rows
 from openpyxl.worksheet.table import Table, TableStyleInfo
 from sqlalchemy.engine import make_url
 from sqlalchemy.exc import ArgumentError
@@ -25,7 +26,7 @@ from auth import bp as auth_bp, login_manager
 from core import directorio, helpers, parser, registry
 from db import db, migrar_codigos_territoriales, usuario_actual_id
 from generators import GENERADORES
-from generators.base import ContextoInformante, _config
+from generators.base import ContextoInformante, _config, preparar_dataframe_generacion
 
 
 load_dotenv()
@@ -259,6 +260,7 @@ def _registrar_rutas(app: Flask) -> None:
         )
 
         df_filtrado = parser.filtrar_por_periodo(df, ano, mes_ini, mes_fin)
+        df_generacion = preparar_dataframe_generacion(df_filtrado, ctx)
 
         dataframes = {}
         formatos_objetivo = (
@@ -268,13 +270,13 @@ def _registrar_rutas(app: Flask) -> None:
         for codigo in formatos_objetivo:
             GenClass = GENERADORES[codigo]
             gen = GenClass(ctx)
-            dataframes[codigo] = gen.generar(df_filtrado)
+            dataframes[codigo] = gen.generar(df_generacion)
 
         nit_archivo = secure_filename(nit_inf) or "INFORMANTE"
         nombre_archivo = f"Exogena_AG{ano}_{nit_archivo}.xlsx"
         archivo_origen_nombre = session.get("archivo_nombre", "")
         archivo_origen = (_user_dir("") / archivo_origen_nombre) if archivo_origen_nombre else None
-        archivo = _crear_xlsx_consolidado(dataframes, ctx, df_filtrado, archivo_origen)
+        archivo = _crear_xlsx_consolidado(dataframes, ctx, df_filtrado, archivo_origen, df_generacion)
         return send_file(
             archivo,
             as_attachment=True,
@@ -425,11 +427,12 @@ def _crear_xlsx_consolidado(
     ctx: ContextoInformante,
     df_origen: pd.DataFrame,
     archivo_origen: Path | None = None,
+    df_generacion: pd.DataFrame | None = None,
 ) -> io.BytesIO:
     wb = Workbook()
     ws = wb.active
     ws.title = "Resumen"
-    _llenar_resumen(ws, df_origen, ctx)
+    _llenar_resumen(ws, df_generacion if df_generacion is not None else df_origen, ctx)
     ws = wb.create_sheet(title="Informe")
     if not _copiar_primera_hoja_cargada(archivo_origen, ws):
         _llenar_informe_normalizado(ws, df_origen)
@@ -460,7 +463,6 @@ def _crear_xlsx_consolidado(
 
 
 def _resumen_empresa(df: pd.DataFrame, ctx: ContextoInformante) -> dict[str, float]:
-    catalogo = registry.catalogo_tipos()
     formato_ingresos = "5248" if ctx.es_participante_colaboracion else "1007"
     formato_gastos = "5247" if ctx.es_participante_colaboracion else "1001"
     reglas_ingresos = registry.regla_para_formato(formato_ingresos)
@@ -477,42 +479,38 @@ def _resumen_empresa(df: pd.DataFrame, ctx: ContextoInformante) -> dict[str, flo
         "nomina": 0.0,
     }
 
-    for _, row in df.iterrows():
-        tipo = str(row.get("tipo_documento", "") or "").strip()
-        grupo = str(row.get("grupo", "") or "").strip()
-        if registry.es_tipo_nomina(tipo):
-            cat, signo = "nomina", 1
-        else:
-            info = catalogo.get(tipo, {})
-            cat = str(info.get("categoria", "") or "")
-            signo = int(info.get("signo", 1) or 1)
-        if not cat or cat in ("ignorar",):
-            continue
+    if df.empty:
+        out["ingresos_netos"] = 0.0
+        out["gastos_netos"] = 0.0
+        out["utilidad_estimada"] = 0.0
+        return out
 
-        base = float(row.get("base", 0) or 0)
-        iva = float(row.get("iva", 0) or 0)
-        total = float(row.get("total", 0) or 0)
-        base_firmada = base * signo
-        iva_firmado = iva * signo
-        total_firmado = total * signo
-        regla = (cat, grupo)
+    work = df if "__categoria__" in df.columns and "__signo__" in df.columns else preparar_dataframe_generacion(df, ctx)
+    categorias = work["__categoria__"].fillna("").astype(str)
+    grupos = work.get("__grupo__", work["grupo"]).fillna("").astype(str).str.strip()
+    signos = pd.to_numeric(work["__signo__"], errors="coerce").fillna(1.0)
+    zeros = pd.Series(0.0, index=work.index)
+    base = pd.to_numeric(work["base"] if "base" in work.columns else zeros, errors="coerce").fillna(0.0) * signos
+    iva = pd.to_numeric(work["iva"] if "iva" in work.columns else zeros, errors="coerce").fillna(0.0) * signos
+    total = pd.to_numeric(work["total"] if "total" in work.columns else zeros, errors="coerce").fillna(0.0) * signos
 
-        if cat == "nomina":
-            out["nomina"] += max(base_firmada, 0)
-        elif regla in reglas_ingresos:
-            if base_firmada >= 0:
-                out["ingresos_brutos"] += base_firmada
-            else:
-                out["devoluciones_ingresos"] += abs(base_firmada)
-            out["iva_generado"] += iva_firmado
-            out["total_ingresos"] += total_firmado
-        elif regla in reglas_gastos:
-            if base_firmada >= 0:
-                out["gastos_brutos"] += base_firmada
-            else:
-                out["devoluciones_gastos"] += abs(base_firmada)
-            out["iva_descontable"] += iva_firmado
-            out["total_gastos"] += total_firmado
+    nomina_mask = categorias.eq("nomina")
+    out["nomina"] = float(base.where(nomina_mask & (base > 0), 0.0).sum())
+
+    reglas_ingresos_idx = pd.MultiIndex.from_tuples(reglas_ingresos)
+    reglas_gastos_idx = pd.MultiIndex.from_tuples(reglas_gastos)
+    pares = pd.MultiIndex.from_arrays([categorias, grupos])
+    ingresos_mask = pd.Series(pares.isin(reglas_ingresos_idx), index=work.index)
+    gastos_mask = pd.Series(pares.isin(reglas_gastos_idx), index=work.index)
+
+    out["ingresos_brutos"] = float(base.where(ingresos_mask & (base >= 0), 0.0).sum())
+    out["devoluciones_ingresos"] = float((-base.where(ingresos_mask & (base < 0), 0.0)).sum())
+    out["iva_generado"] = float(iva.where(ingresos_mask, 0.0).sum())
+    out["total_ingresos"] = float(total.where(ingresos_mask, 0.0).sum())
+    out["gastos_brutos"] = float(base.where(gastos_mask & (base >= 0), 0.0).sum())
+    out["devoluciones_gastos"] = float((-base.where(gastos_mask & (base < 0), 0.0)).sum())
+    out["iva_descontable"] = float(iva.where(gastos_mask, 0.0).sum())
+    out["total_gastos"] = float(total.where(gastos_mask, 0.0).sum())
 
     out["ingresos_netos"] = out["ingresos_brutos"] - out["devoluciones_ingresos"]
     out["gastos_netos"] = out["gastos_brutos"] - out["devoluciones_gastos"]
@@ -629,11 +627,8 @@ def _llenar_informe_normalizado(ws, df: pd.DataFrame) -> None:
     if not columnas:
         return
 
-    for col_idx, nombre in enumerate(columnas, 1):
-        ws.cell(1, col_idx, value=nombre)
-    for row_idx, (_, row) in enumerate(df.iterrows(), 2):
-        for col_idx, nombre in enumerate(columnas, 1):
-            ws.cell(row_idx, col_idx, value=_valor_excel(row.get(nombre)))
+    for row in dataframe_to_rows(df, index=False, header=True):
+        ws.append([_valor_excel(valor) for valor in row])
     _formatear_tabla_informe(ws, len(df) + 1, len(columnas))
 
 
@@ -671,21 +666,15 @@ def _formatear_tabla_informe(ws, max_row: int, max_col: int) -> None:
     ws.sheet_view.showGridLines = False
     ws.freeze_panes = "A2" if max_row > 1 else None
 
-    borde = Border(bottom=Side(style="thin", color="E5E7EB"))
     encabezado_fill = PatternFill("solid", fgColor="F3F4F6")
     encabezado_font = Font(bold=True, size=10, color="111827")
-    cuerpo_font = Font(size=10, color="111827")
-    for row_idx in range(1, max_row + 1):
-        ws.row_dimensions[row_idx].height = 20
-        for col_idx in range(1, max_col + 1):
-            celda = ws.cell(row_idx, col_idx)
-            celda.border = borde
-            celda.alignment = Alignment(vertical="center", wrap_text=False)
-            if row_idx == 1:
-                celda.font = encabezado_font
-                celda.fill = encabezado_fill
-            else:
-                celda.font = cuerpo_font
+    ws.row_dimensions[1].height = 22
+    for col_idx in range(1, max_col + 1):
+        celda = ws.cell(1, col_idx)
+        celda.border = Border(bottom=Side(style="thin", color="D1D5DB"))
+        celda.alignment = Alignment(vertical="center", wrap_text=False)
+        celda.font = encabezado_font
+        celda.fill = encabezado_fill
 
     for col_idx in range(1, max_col + 1):
         letra = get_column_letter(col_idx)
@@ -740,10 +729,8 @@ def _llenar_hoja(ws, df: pd.DataFrame, codigo: str, ctx: ContextoInformante, wit
         cel.font = bold
         cel.fill = fill
         ws.cell(fila_header + 1, j, value=c["campo"]).font = italic
-    fila_dato = fila_header + 2
-    for i, row in df.iterrows():
-        for j, c in enumerate(columnas, 1):
-            ws.cell(fila_dato + i, j, value=row[c["campo"]])
+    for row in dataframe_to_rows(df[[c["campo"] for c in columnas]], index=False, header=False):
+        ws.append([_valor_excel(valor) for valor in row])
     for j, c in enumerate(columnas, 1):
         ws.column_dimensions[ws.cell(1, j).column_letter].width = max(12, min(40, len(c["nombre"]) + 2))
 

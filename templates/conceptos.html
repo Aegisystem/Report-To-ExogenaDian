@@ -1,7 +1,12 @@
 {% extends "base.html" %}
 {% block body %}
-<h1>2. Tipos de documento nuevos</h1>
-<p class="muted">El archivo contiene tipos de documento que aún no están en el catálogo. Indica cómo tratarlos. Quedarán guardados para próximos archivos.</p>
+<div class="page-heading">
+  <div>
+    <h1>2. Tipos de documento nuevos</h1>
+    <p class="muted">El archivo contiene tipos de documento que aún no están en el catálogo. Indica cómo tratarlos. Quedarán guardados para próximos archivos.</p>
+  </div>
+  <a class="btn btn-secondary" href="{{ url_for('index') }}">← Volver</a>
+</div>
 
 <form method="post" action="{{ url_for('conceptos_post') }}">
   <table>

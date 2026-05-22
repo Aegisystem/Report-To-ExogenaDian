@@ -44,6 +44,7 @@ class ContextoInformante:
     nit_participante: str = ""
     tdoc_participante: int = 31
     id_fideicomiso: str = ""
+    _terceros_info_cache: dict[tuple[str, str], dict[str, Any]] = field(default_factory=dict, repr=False)
 
 
 def nit_tercero(row) -> str:
@@ -63,6 +64,42 @@ def nombre_tercero(row) -> str:
     if g == "emitido":
         return str(row.get("nombre_receptor", "")).strip()
     return ""
+
+
+def preparar_dataframe_generacion(df: pd.DataFrame, ctx: ContextoInformante) -> pd.DataFrame:
+    """Agrega columnas auxiliares usadas por todos los formatos una sola vez."""
+    if df.empty:
+        return df
+    out = df.copy()
+    tipos_info = registry.catalogo_tipos()
+
+    tipos = out.get("tipo_documento", pd.Series(index=out.index, dtype=str)).fillna("").astype(str).str.strip()
+    grupos = out.get("grupo", pd.Series(index=out.index, dtype=str)).fillna("").astype(str).str.strip()
+    grupos_lower = grupos.str.lower()
+
+    categorias = tipos.map(lambda tipo: "nomina" if registry.es_tipo_nomina(tipo) else tipos_info.get(tipo, {}).get("categoria", ""))
+    signos = tipos.map(lambda tipo: 1 if registry.es_tipo_nomina(tipo) else int(tipos_info.get(tipo, {}).get("signo", 1) or 1))
+    out["__categoria__"] = categorias.fillna("").astype(str)
+    out["__signo__"] = pd.to_numeric(signos, errors="coerce").fillna(1).astype(int)
+
+    nit_tercero_col = pd.Series("", index=out.index, dtype=object)
+    nombre_tercero_col = pd.Series("", index=out.index, dtype=object)
+    mask_recibido = grupos_lower.eq("recibido")
+    mask_emitido = grupos_lower.eq("emitido")
+    if "nit_emisor" in out.columns:
+        nit_tercero_col.loc[mask_recibido] = out.loc[mask_recibido, "nit_emisor"].fillna("").astype(str).str.strip()
+    if "nit_receptor" in out.columns:
+        nit_tercero_col.loc[mask_emitido] = out.loc[mask_emitido, "nit_receptor"].fillna("").astype(str).str.strip()
+    if "nombre_emisor" in out.columns:
+        nombre_tercero_col.loc[mask_recibido] = out.loc[mask_recibido, "nombre_emisor"].fillna("").astype(str).str.strip()
+    if "nombre_receptor" in out.columns:
+        nombre_tercero_col.loc[mask_emitido] = out.loc[mask_emitido, "nombre_receptor"].fillna("").astype(str).str.strip()
+
+    out["__grupo__"] = grupos
+    out["__nit_tercero__"] = nit_tercero_col.astype(str).str.replace(r"\D", "", regex=True)
+    out["__nombre_tercero__"] = nombre_tercero_col
+    out = out[out["__nit_tercero__"] != helpers.normalizar_nit(ctx.nit)]
+    return out
 
 
 class BaseFormato:
@@ -116,25 +153,21 @@ class BaseFormato:
         if "tipo_documento" not in df.columns or "grupo" not in df.columns:
             return df.iloc[0:0].copy()
 
-        out = df.copy()
-        tipos = out["tipo_documento"].fillna("").astype(str).str.strip()
-        grupos = out["grupo"].fillna("").astype(str).str.strip()
-        categorias = tipos.map(self._categoria_tipo)
-        signos = tipos.map(self._signo_tipo)
-        mask = [(cat, grp) in self._reglas for cat, grp in zip(categorias, grupos)]
+        out = df
+        if "__categoria__" not in out.columns or "__signo__" not in out.columns:
+            out = preparar_dataframe_generacion(out, self.ctx)
+        categorias = out["__categoria__"].fillna("").astype(str)
+        grupos = out.get("__grupo__", out["grupo"]).fillna("").astype(str).str.strip()
+        pares = pd.MultiIndex.from_arrays([categorias, grupos])
+        mask = pares.isin(pd.MultiIndex.from_tuples(self._reglas))
         out = out.loc[mask].copy()
-        out["__categoria__"] = categorias.loc[out.index]
-        out["__signo__"] = signos.loc[out.index]
         return out
 
     def _agrupar_por_tercero(self, df: pd.DataFrame) -> dict[str, pd.DataFrame]:
         if df.empty:
             return {}
-        df = df.copy()
-        df["__nit_tercero__"] = df.apply(nit_tercero, axis=1)
-        df["__nombre_tercero__"] = df.apply(nombre_tercero, axis=1)
-        # Excluir filas del propio informante (autofacturación, etc.)
-        df = df[df["__nit_tercero__"] != str(self.ctx.nit).strip()]
+        if "__nit_tercero__" not in df.columns or "__nombre_tercero__" not in df.columns:
+            df = preparar_dataframe_generacion(df, self.ctx)
         grupos = {}
         for nit, sub in df.groupby("__nit_tercero__", dropna=False):
             nit = str(nit or "").strip()
@@ -143,11 +176,15 @@ class BaseFormato:
             grupos[nit] = sub
         return grupos
 
-    def _info_tercero(self, sub: pd.DataFrame) -> dict[str, Any]:
-        """Datos identificatorios del tercero. Consulta directorio si tiene cache."""
-        nit_raw = sub["__nit_tercero__"].iloc[0]
-        nombre = sub["__nombre_tercero__"].iloc[0]
+    def _info_tercero_valores(self, nit_raw: Any, nombre_raw: Any) -> dict[str, Any]:
+        """Datos identificatorios del tercero. Comparte cache entre formatos."""
+        nombre = str(nombre_raw or "").strip()
         nid = helpers.normalizar_nit(nit_raw)
+        cache_key = (nid, nombre)
+        cached = self.ctx._terceros_info_cache.get(cache_key)
+        if cached is not None:
+            return cached.copy()
+
         tdoc = helpers.inferir_tipo_documento(nid, nombre)
 
         info: dict[str, Any] = {"nid": nid, "tdoc": tdoc}
@@ -181,23 +218,70 @@ class BaseFormato:
                 "raz": helpers.limpiar_texto(razon, 450),
             })
 
-        campos = {c["campo"] for c in self.columnas}
-        if "dv" in campos:
-            if tdoc == 13:
-                info["dv"] = ""
-            else:
-                info["dv"] = (cache or {}).get("dv") if cache else helpers.calcular_dv(nid)
-                if info["dv"] is None:
-                    info["dv"] = helpers.calcular_dv(nid)
-        if "pais" in campos:
-            info["pais"] = (cache or {}).get("pais") or registry.pais_default()
-        if "dir" in campos:
-            info["dir"] = (cache or {}).get("dir", "") or ""
-        if "dpto" in campos:
-            info["dpto"] = helpers.normalizar_departamento((cache or {}).get("dpto"))
-        if "mun" in campos:
-            info["mun"] = helpers.normalizar_municipio((cache or {}).get("mun"))
+        if tdoc == 13:
+            info["dv"] = ""
+        else:
+            info["dv"] = (cache or {}).get("dv") if cache else helpers.calcular_dv(nid)
+            if info["dv"] is None:
+                info["dv"] = helpers.calcular_dv(nid)
+        info["pais"] = (cache or {}).get("pais") or registry.pais_default()
+        info["dir"] = (cache or {}).get("dir", "") or ""
+        info["dpto"] = helpers.normalizar_departamento((cache or {}).get("dpto"))
+        info["mun"] = helpers.normalizar_municipio((cache or {}).get("mun"))
+        self.ctx._terceros_info_cache[cache_key] = info.copy()
         return info
+
+    def _info_tercero(self, sub: pd.DataFrame) -> dict[str, Any]:
+        """Datos identificatorios del tercero. Consulta directorio si tiene cache."""
+        nit_raw = sub["__nit_tercero__"].iloc[0]
+        nombre = sub["__nombre_tercero__"].iloc[0]
+        return self._info_tercero_valores(nit_raw, nombre)
+
+    def _agregados_por_tercero(self, df: pd.DataFrame, columnas: list[str]) -> pd.DataFrame:
+        df_g = self._filtrar_aplicables(df)
+        if df_g.empty:
+            return pd.DataFrame(columns=["__nit_tercero__", "__nombre_tercero__", *columnas])
+        if "__nit_tercero__" not in df_g.columns or "__nombre_tercero__" not in df_g.columns:
+            df_g = preparar_dataframe_generacion(df_g, self.ctx)
+        columnas_presentes = [c for c in columnas if c in df_g.columns]
+        if not columnas_presentes:
+            return pd.DataFrame(columns=["__nit_tercero__", "__nombre_tercero__", *columnas])
+
+        work = df_g[["__nit_tercero__", "__nombre_tercero__", "__signo__", *columnas_presentes]].copy()
+        signos = pd.to_numeric(work["__signo__"], errors="coerce").fillna(1)
+        for col in columnas_presentes:
+            work[col] = pd.to_numeric(work[col], errors="coerce").fillna(0.0) * signos
+
+        agg = work.groupby("__nit_tercero__", as_index=False).agg({
+            "__nombre_tercero__": "first",
+            **{col: "sum" for col in columnas_presentes},
+        })
+        for col in columnas:
+            if col not in agg.columns:
+                agg[col] = 0.0
+        return agg
+
+    def _agregados_pos_dev_por_tercero(self, df: pd.DataFrame, columna: str) -> pd.DataFrame:
+        df_g = self._filtrar_aplicables(df)
+        cols = ["__nit_tercero__", "__nombre_tercero__", "positivo", "devolucion"]
+        if df_g.empty or columna not in df_g.columns:
+            return pd.DataFrame(columns=cols)
+        if "__nit_tercero__" not in df_g.columns or "__nombre_tercero__" not in df_g.columns:
+            df_g = preparar_dataframe_generacion(df_g, self.ctx)
+
+        signos = pd.to_numeric(df_g["__signo__"], errors="coerce").fillna(1)
+        firmados = pd.to_numeric(df_g[columna], errors="coerce").fillna(0.0) * signos
+        work = pd.DataFrame({
+            "__nit_tercero__": df_g["__nit_tercero__"],
+            "__nombre_tercero__": df_g["__nombre_tercero__"],
+            "positivo": firmados.where(firmados > 0, 0.0),
+            "devolucion": (-firmados.where(firmados < 0, 0.0)),
+        })
+        return work.groupby("__nit_tercero__", as_index=False).agg({
+            "__nombre_tercero__": "first",
+            "positivo": "sum",
+            "devolucion": "sum",
+        })
 
     def _suma_neta(self, sub: pd.DataFrame, columna: str) -> float:
         """Suma 'columna' aplicando el signo del tipo de documento."""

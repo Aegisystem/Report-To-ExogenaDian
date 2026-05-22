@@ -12,12 +12,12 @@ class Formato5250(BaseFormato):
     def _filas(self, df: pd.DataFrame) -> list[dict[str, Any]]:
         if not self.ctx.es_participante_colaboracion:
             return []
-        df_g = self._filtrar_aplicables(df)
+        agregados = self._agregados_por_tercero(df, ["iva", "inc"])
         filas = []
-        for _nit, sub in self._agrupar_por_tercero(df_g).items():
-            info = self._info_tercero(sub)
-            ivag = self._suma_neta(sub, "iva")
-            inc = self._suma_neta(sub, "inc")
+        for _, row in agregados.iterrows():
+            info = self._info_tercero_valores(row["__nit_tercero__"], row["__nombre_tercero__"])
+            ivag = row["iva"]
+            inc = row["inc"]
             if ivag <= 0 and inc <= 0:
                 continue
             filas.append({

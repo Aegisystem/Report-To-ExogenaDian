@@ -10,11 +10,11 @@ class Formato1007(BaseFormato):
     CODIGO = "1007"
 
     def _filas(self, df: pd.DataFrame) -> list[dict[str, Any]]:
-        df_g = self._filtrar_aplicables(df)
+        agregados = self._agregados_pos_dev_por_tercero(df, "base")
         filas = []
-        for _nit, sub in self._agrupar_por_tercero(df_g).items():
-            info = self._info_tercero(sub)
-            ibru, dred = self._sumas_positivas_y_devoluciones(sub, "base")
+        for _, row in agregados.iterrows():
+            info = self._info_tercero_valores(row["__nit_tercero__"], row["__nombre_tercero__"])
+            ibru, dred = row["positivo"], row["devolucion"]
             if ibru <= 0 and dred <= 0:
                 continue
             filas.append({

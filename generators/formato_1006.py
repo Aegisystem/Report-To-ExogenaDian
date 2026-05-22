@@ -10,12 +10,12 @@ class Formato1006(BaseFormato):
     CODIGO = "1006"
 
     def _filas(self, df: pd.DataFrame) -> list[dict[str, Any]]:
-        df_g = self._filtrar_aplicables(df)
+        agregados = self._agregados_por_tercero(df, ["iva", "inc"])
         filas = []
-        for _nit, sub in self._agrupar_por_tercero(df_g).items():
-            info = self._info_tercero(sub)
-            imp = self._suma_neta(sub, "iva")
-            inc = self._suma_neta(sub, "inc")
+        for _, row in agregados.iterrows():
+            info = self._info_tercero_valores(row["__nit_tercero__"], row["__nombre_tercero__"])
+            imp = row["iva"]
+            inc = row["inc"]
             if imp <= 0 and inc <= 0:
                 continue
             filas.append({

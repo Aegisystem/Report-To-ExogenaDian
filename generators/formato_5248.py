@@ -12,11 +12,11 @@ class Formato5248(BaseFormato):
     def _filas(self, df: pd.DataFrame) -> list[dict[str, Any]]:
         if not self.ctx.es_participante_colaboracion:
             return []
-        df_g = self._filtrar_aplicables(df)
+        agregados = self._agregados_pos_dev_por_tercero(df, "base")
         filas = []
-        for _nit, sub in self._agrupar_por_tercero(df_g).items():
-            info = self._info_tercero(sub)
-            ibure, dred = self._sumas_positivas_y_devoluciones(sub, "base")
+        for _, row in agregados.iterrows():
+            info = self._info_tercero_valores(row["__nit_tercero__"], row["__nombre_tercero__"])
+            ibure, dred = row["positivo"], row["devolucion"]
             if ibure <= 0 and dred <= 0:
                 continue
             filas.append({

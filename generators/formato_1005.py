@@ -10,11 +10,11 @@ class Formato1005(BaseFormato):
     CODIGO = "1005"
 
     def _filas(self, df: pd.DataFrame) -> list[dict[str, Any]]:
-        df_g = self._filtrar_aplicables(df)
+        agregados = self._agregados_por_tercero(df, ["iva"])
         filas = []
-        for _nit, sub in self._agrupar_por_tercero(df_g).items():
-            info = self._info_tercero(sub)
-            vimp = self._suma_neta(sub, "iva")
+        for _, row in agregados.iterrows():
+            info = self._info_tercero_valores(row["__nit_tercero__"], row["__nombre_tercero__"])
+            vimp = row["iva"]
             if vimp <= 0:
                 continue
             filas.append({

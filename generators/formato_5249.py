@@ -12,11 +12,11 @@ class Formato5249(BaseFormato):
     def _filas(self, df: pd.DataFrame) -> list[dict[str, Any]]:
         if not self.ctx.es_participante_colaboracion:
             return []
-        df_g = self._filtrar_aplicables(df)
+        agregados = self._agregados_por_tercero(df, ["iva"])
         filas = []
-        for _nit, sub in self._agrupar_por_tercero(df_g).items():
-            info = self._info_tercero(sub)
-            ivad = self._suma_neta(sub, "iva")
+        for _, row in agregados.iterrows():
+            info = self._info_tercero_valores(row["__nit_tercero__"], row["__nombre_tercero__"])
+            ivad = row["iva"]
             if ivad <= 0:
                 continue
             filas.append({
