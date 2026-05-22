@@ -24,7 +24,70 @@ def calcular_dv(nit: str) -> Optional[int]:
     return 11 - resto
 
 
-def inferir_tipo_documento(nit: str) -> int:
+_TIPOS_DOCUMENTO_VALIDOS = {11, 12, 13, 21, 22, 31, 41, 42, 43, 47, 48, 50, 91}
+
+_MARCADORES_PERSONA_JURIDICA = {
+    "sas", "sa", "s a", "s a s", "s en c", "ltda", "limitada", "e u", "eu",
+    "empresa", "empresas", "fundacion", "corporacion", "cooperativa", "asociacion",
+    "banco", "compania", "cia", "comercializadora", "constructora", "construcciones",
+    "ingenieria", "inversiones", "servicios", "soluciones", "suministros",
+    "distribuciones", "distribuidora", "transportes", "industrias", "grupo",
+    "organizacion", "clinica", "hospital", "ips", "eps",
+}
+
+
+def tipo_documento_desde_valor(valor) -> Optional[int]:
+    if valor is None:
+        return None
+    txt = quitar_acentos(str(valor)).lower().strip()
+    if not txt:
+        return None
+    digits = re.sub(r"\D", "", txt)
+    if digits:
+        codigo = int(digits)
+        if codigo in _TIPOS_DOCUMENTO_VALIDOS:
+            return codigo
+    compacto = re.sub(r"[^a-z0-9]+", " ", txt).strip()
+    if compacto in {"cc", "c c"} or "cedula de ciudadania" in compacto:
+        return 13
+    if "nit" in compacto:
+        return 31
+    if "tarjeta de identidad" in compacto:
+        return 12
+    if "registro civil" in compacto:
+        return 11
+    if "cedula de extranjeria" in compacto:
+        return 22
+    if "pasaporte" in compacto:
+        return 41
+    if "pep" in compacto:
+        return 47
+    if "ppt" in compacto:
+        return 48
+    return None
+
+
+def parece_persona_juridica(nombre: str) -> bool:
+    clave = _clave_nombre(nombre)
+    if not clave:
+        return False
+    tokens = set(clave.split())
+    if tokens & _MARCADORES_PERSONA_JURIDICA:
+        return True
+    return any(marcador in clave for marcador in ("s a s", "s a", "s en c"))
+
+
+def parece_persona_natural(nombre: str) -> bool:
+    clave = _clave_nombre(nombre)
+    if not clave or parece_persona_juridica(nombre):
+        return False
+    partes = clave.split()
+    if not 2 <= len(partes) <= 6:
+        return False
+    return not any(char.isdigit() for char in clave)
+
+
+def inferir_tipo_documento(nit: str, nombre: str | None = None) -> int:
     """Códigos DIAN: 11=Reg civil, 12=Tarjeta identidad, 13=Cedula, 21=Tarjeta extranj,
     22=Cedula extranj, 31=NIT, 41=Pasaporte, 42=Doc id extranjero, 43=Sin id exterior,
     47=PEP, 48=PPT, 50=NIT otro pais, 91=NUIP."""
@@ -33,6 +96,10 @@ def inferir_tipo_documento(nit: str) -> int:
     s = re.sub(r"\D", "", str(nit))
     if not s:
         return 43
+    if nombre and parece_persona_juridica(nombre):
+        return 31
+    if nombre and parece_persona_natural(nombre):
+        return 13
     # NITs empresariales colombianos: 8xx, 9xx con 9-10 dígitos
     if len(s) >= 9 and s[0] in ("8", "9"):
         return 31

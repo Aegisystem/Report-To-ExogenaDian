@@ -116,7 +116,7 @@ def _informante_actual() -> dict[str, str] | None:
     nombre = str(primero.get("nombre", "")).strip()
     if not nit:
         return None
-    return {"nit": nit, "nombre": nombre, "tdoc": str(helpers.inferir_tipo_documento(nit))}
+    return {"nit": nit, "nombre": nombre, "tdoc": str(helpers.inferir_tipo_documento(nit, nombre))}
 
 
 def _entero_form(valor, default: int) -> int:
@@ -241,7 +241,7 @@ def _registrar_rutas(app: Flask) -> None:
             cpt_1007 = _entero_form(request.form.get("cpt_5248"), 4010)
             tcon = _entero_form(request.form.get("tipo_contrato"), 2)
             nit_part = nit_inf
-            tdoc_part = helpers.inferir_tipo_documento(nit_inf)
+            tdoc_part = helpers.inferir_tipo_documento(nit_inf, nombre_inf)
         else:
             cpt_1007 = _entero_form(request.form.get("cpt_1007"), registry.concepto_default("1007") or 4001)
             tcon = 2

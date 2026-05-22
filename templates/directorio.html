@@ -44,14 +44,14 @@
 <div class="box">
   <strong>2. Enriquecer faltantes desde RUES</strong>
   {% if tiene_df %}
-    <p class="muted">El archivo cargado tiene <strong>{{ faltantes|length }}</strong> NITs que aún no están en el directorio.</p>
+    <p class="muted">El archivo cargado tiene <strong>{{ faltantes|length }}</strong> NITs sin directorio completo (dirección, departamento y municipio).</p>
     {% if faltantes %}
       <form method="post" action="{{ url_for('enriquecer_directorio') }}">
         <label><input type="checkbox" name="forzar"> Re-intentar también los que ya fallaron</label>
         <div style="margin-top:12px;">
           <button type="submit">Consultar RUES ({{ faltantes|length }} NITs)</button>
         </div>
-        <p class="muted" style="margin-top:8px;">⚠ El portal RUES es una SPA y los endpoints públicos son inestables. Muchas consultas pueden no encontrar resultados. Si falla, edita manualmente abajo.</p>
+        <p class="muted" style="margin-top:8px;">Consulta fuentes públicas en cascada: RUES/datos.gov.co y RegistroNIT. Los XML UBL siguen siendo la fuente más confiable para direcciones.</p>
       </form>
     {% endif %}
   {% else %}

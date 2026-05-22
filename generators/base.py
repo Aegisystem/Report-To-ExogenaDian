@@ -148,14 +148,16 @@ class BaseFormato:
         nit_raw = sub["__nit_tercero__"].iloc[0]
         nombre = sub["__nombre_tercero__"].iloc[0]
         nid = helpers.normalizar_nit(nit_raw)
-        tdoc = helpers.inferir_tipo_documento(nid)
+        tdoc = helpers.inferir_tipo_documento(nid, nombre)
 
         info: dict[str, Any] = {"nid": nid, "tdoc": tdoc}
 
         cache = directorio.lookup(nid)
         if cache and cache.get("tdoc"):
             try:
-                tdoc = int(cache["tdoc"])
+                cache_tdoc = int(cache["tdoc"])
+                if not (cache_tdoc == 31 and helpers.parece_persona_natural(nombre)):
+                    tdoc = cache_tdoc
                 info["tdoc"] = tdoc
             except (TypeError, ValueError):
                 pass

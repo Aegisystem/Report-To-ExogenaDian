@@ -19,6 +19,7 @@ Cada usuario tiene su propio directorio (filtrado por usuario_id en sesión).
 from __future__ import annotations
 
 from collections import Counter
+import re
 import xml.etree.ElementTree as ET
 import zipfile
 from pathlib import Path
@@ -85,6 +86,8 @@ def _aplicar_campos(t: Tercero, datos: dict[str, Any]) -> None:
             if existente not in (None, "", 0):
                 continue
         setattr(t, dst, v)
+    if getattr(t, "tdoc", None) == 13:
+        t.dv = None
 
 
 def upsert(nid: str, datos: dict[str, Any]) -> None:
@@ -189,11 +192,15 @@ def recalcular_nombres_desde_df(df) -> int:
 
     actualizados = 0
     for t in terceros:
-        tdoc = t.tdoc if t.tdoc is not None else helpers.inferir_tipo_documento(t.nid)
+        nombre = _mejor_nombre(por_nit[t.nid])
+        tdoc_inferido = helpers.inferir_tipo_documento(t.nid, nombre)
+        tdoc = t.tdoc if t.tdoc is not None else tdoc_inferido
+        if tdoc == 31 and tdoc_inferido == 13:
+            tdoc = 13
         if not helpers.es_persona_natural(tdoc):
             continue
 
-        apl1, apl2, nom1, nom2 = helpers.split_nombre_persona(_mejor_nombre(por_nit[t.nid]))
+        apl1, apl2, nom1, nom2 = helpers.split_nombre_persona(nombre)
         nuevos = {
             "tdoc": tdoc,
             "raz": "",
@@ -243,6 +250,12 @@ def _parsear_party(party: ET.Element) -> dict[str, Any]:
     if party_id is not None:
         nid = helpers.normalizar_nit(party_id.text or "")
         out["nid"] = nid
+        tdoc = _tdoc_desde_party_id(party_id)
+        if tdoc:
+            out["tdoc"] = tdoc
+        dv = _dv_desde_party_id(party_id, tdoc)
+        if dv is not None:
+            out["dv"] = dv
 
     razon = _texto(party, ".//cac:PartyTaxScheme/cbc:RegistrationName") or \
             _texto(party, ".//cac:PartyLegalEntity/cbc:RegistrationName") or \
@@ -278,8 +291,34 @@ def _parsear_party(party: ET.Element) -> dict[str, Any]:
         if pais_code == "CO":
             out["pais"] = 169
 
+    if out.get("nid") and not out.get("tdoc"):
+        nombre = out.get("raz") or " ".join(
+            str(out.get(k, "") or "") for k in ("nom1", "nom2", "apl1", "apl2")
+        )
+        out["tdoc"] = helpers.inferir_tipo_documento(out["nid"], nombre)
+    if out.get("tdoc") == 13:
+        out.pop("dv", None)
+
     out["fuente"] = "UBL"
     return out
+
+
+def _tdoc_desde_party_id(party_id: ET.Element) -> int | None:
+    for attr in ("schemeName", "schemeAgencyName"):
+        tdoc = helpers.tipo_documento_desde_valor(party_id.attrib.get(attr))
+        if tdoc:
+            return tdoc
+    scheme_id = party_id.attrib.get("schemeID", "")
+    if len(re.sub(r"\D", "", scheme_id)) >= 2:
+        return helpers.tipo_documento_desde_valor(scheme_id)
+    return None
+
+
+def _dv_desde_party_id(party_id: ET.Element, tdoc: int | None) -> int | None:
+    if tdoc == 13:
+        return None
+    scheme_id = party_id.attrib.get("schemeID", "")
+    return int(scheme_id) if scheme_id.isdigit() and len(scheme_id) == 1 else None
 
 
 def _importar_formato_dian(root: ET.Element) -> list[dict[str, Any]]:
@@ -298,7 +337,7 @@ def _importar_formato_dian(root: ET.Element) -> list[dict[str, Any]]:
         data: dict[str, Any] = {"nid": nid, "fuente": "DIAN-Prevalidador"}
         if attrs.get("tdoc", "").isdigit():
             data["tdoc"] = int(attrs["tdoc"])
-        if attrs.get("dv", "").isdigit():
+        if data.get("tdoc") != 13 and attrs.get("dv", "").isdigit():
             data["dv"] = int(attrs["dv"])
         for k in ("raz", "apl1", "apl2", "nom1", "nom2", "dir"):
             v = attrs.get(k, "").strip()
@@ -313,7 +352,7 @@ def _importar_formato_dian(root: ET.Element) -> list[dict[str, Any]]:
                     data[k] = helpers.normalizar_municipio(v)
                 else:
                     data[k] = int(v)
-        if "dv" not in data:
+        if data.get("tdoc") != 13 and "dv" not in data:
             dv = helpers.calcular_dv(nid)
             if dv is not None:
                 data["dv"] = dv
@@ -438,7 +477,7 @@ def consultar_remoto(nid: str, forzar: bool = False) -> dict[str, Any] | None:
     uid = usuario_actual_id()
 
     pos = lookup(nid)
-    if pos:
+    if pos and _tercero_tiene_datos_exogena(pos):
         return pos
 
     if not forzar:
@@ -461,6 +500,10 @@ def consultar_remoto(nid: str, forzar: bool = False) -> dict[str, Any] | None:
         db.session.add(NitNoEncontrado(usuario_id=uid, nid=nid, fuente="RUES"))
     db.session.commit()
     return None
+
+
+def _tercero_tiene_datos_exogena(data: dict[str, Any]) -> bool:
+    return bool(data.get("dir") and data.get("dpto") and data.get("mun"))
 
 
 def enriquecer_lote(nids: list[str], forzar: bool = False, delay: float = 0.5) -> tuple[int, int, list[str]]:
@@ -501,6 +544,10 @@ def nits_faltantes_del_df(df) -> list[str]:
     except Exception:
         return sorted(nids)
     existentes = {
-        row[0] for row in db.session.query(Tercero.nid).filter_by(usuario_id=uid)
+        t.nid: t.to_dict() for t in db.session.query(Tercero).filter_by(usuario_id=uid)
     }
-    return sorted(nids - existentes)
+    incompletos = {
+        nid for nid, data in existentes.items()
+        if nid in nids and not _tercero_tiene_datos_exogena(data)
+    }
+    return sorted((nids - set(existentes)) | incompletos)
