@@ -5,6 +5,7 @@ import io
 import os
 import shutil
 import tempfile
+import warnings
 from pathlib import Path
 
 import pandas as pd
@@ -13,8 +14,10 @@ from flask import (
     Flask, flash, redirect, render_template, request, send_file, session, url_for,
 )
 from flask_login import login_required
+from openpyxl.cell import WriteOnlyCell
 from openpyxl import Workbook, load_workbook
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
+from openpyxl.utils.cell import range_boundaries
 from openpyxl.utils import get_column_letter
 from openpyxl.utils.dataframe import dataframe_to_rows
 from openpyxl.worksheet.table import Table, TableStyleInfo
@@ -34,6 +37,9 @@ load_dotenv()
 BASE = Path(__file__).resolve().parent
 UPLOADS = BASE / "uploads"
 UPLOADS.mkdir(exist_ok=True)
+
+XLSX_STREAMING_CELL_THRESHOLD = int(os.environ.get("XLSX_STREAMING_CELL_THRESHOLD", "250000"))
+XLSX_SPOOL_MAX_SIZE = int(os.environ.get("XLSX_SPOOL_MAX_SIZE", str(8 * 1024 * 1024)))
 
 
 def _normalizar_database_url(raw: str | None) -> str:
@@ -419,7 +425,7 @@ def _registrar_rutas(app: Flask) -> None:
         return redirect(url_for("ver_directorio"))
 
 
-# ---------------- exportación XLSX en memoria ----------------
+# ---------------- exportación XLSX ----------------
 
 
 def _crear_xlsx_consolidado(
@@ -428,7 +434,12 @@ def _crear_xlsx_consolidado(
     df_origen: pd.DataFrame,
     archivo_origen: Path | None = None,
     df_generacion: pd.DataFrame | None = None,
-) -> io.BytesIO:
+) -> io.IOBase:
+    if _requiere_xlsx_streaming(df_origen, archivo_origen):
+        return _crear_xlsx_consolidado_streaming(
+            dataframes, ctx, df_origen, archivo_origen, df_generacion
+        )
+
     wb = Workbook()
     ws = wb.active
     ws.title = "Resumen"
@@ -456,7 +467,57 @@ def _crear_xlsx_consolidado(
     for codigo, df in dataframes.items():
         hoja = wb.create_sheet(title=f"F{codigo}")
         _llenar_hoja(hoja, df, codigo, ctx, with_meta=False)
-    archivo = io.BytesIO()
+    archivo = _archivo_temporal_xlsx()
+    wb.save(archivo)
+    archivo.seek(0)
+    return archivo
+
+
+def _archivo_temporal_xlsx():
+    return tempfile.SpooledTemporaryFile(max_size=XLSX_SPOOL_MAX_SIZE, mode="w+b")
+
+
+def _requiere_xlsx_streaming(df_origen: pd.DataFrame, archivo_origen: Path | None) -> bool:
+    celdas_df = len(df_origen) * max(1, len(df_origen.columns))
+    if celdas_df >= XLSX_STREAMING_CELL_THRESHOLD:
+        return True
+    if not archivo_origen or not archivo_origen.exists():
+        return False
+    try:
+        wb = load_workbook(archivo_origen, read_only=True, data_only=True)
+        ws = wb.worksheets[0]
+        celdas_origen = (ws.max_row or 0) * max(1, ws.max_column or 1)
+        return celdas_origen >= XLSX_STREAMING_CELL_THRESHOLD
+    except Exception:
+        return False
+    finally:
+        if "wb" in locals():
+            wb.close()
+
+
+def _crear_xlsx_consolidado_streaming(
+    dataframes: dict[str, pd.DataFrame],
+    ctx: ContextoInformante,
+    df_origen: pd.DataFrame,
+    archivo_origen: Path | None = None,
+    df_generacion: pd.DataFrame | None = None,
+) -> io.IOBase:
+    wb = Workbook(write_only=True)
+    ws = wb.create_sheet(title="Resumen")
+    _llenar_resumen_streaming(ws, df_generacion if df_generacion is not None else df_origen, ctx)
+
+    ws = wb.create_sheet(title="Informe")
+    if not _copiar_primera_hoja_cargada_streaming(archivo_origen, ws):
+        _llenar_informe_normalizado_streaming(ws, df_origen)
+
+    ws = wb.create_sheet(title="Índice")
+    _llenar_indice_streaming(ws, dataframes, ctx)
+
+    for codigo, df in dataframes.items():
+        hoja = wb.create_sheet(title=f"F{codigo}")
+        _llenar_hoja_streaming(hoja, df, codigo, ctx, with_meta=False)
+
+    archivo = _archivo_temporal_xlsx()
     wb.save(archivo)
     archivo.seek(0)
     return archivo
@@ -596,6 +657,260 @@ def _llenar_resumen(ws, df: pd.DataFrame, ctx: ContextoInformante) -> None:
         ws.row_dimensions[row].height = 24
 
 
+def _celda_streaming(
+    ws,
+    valor,
+    *,
+    font: Font | None = None,
+    fill: PatternFill | None = None,
+    alignment: Alignment | None = None,
+    border: Border | None = None,
+    number_format: str | None = None,
+):
+    celda = WriteOnlyCell(ws, value=_valor_excel(valor))
+    if font is not None:
+        celda.font = font
+    if fill is not None:
+        celda.fill = fill
+    if alignment is not None:
+        celda.alignment = alignment
+    if border is not None:
+        celda.border = border
+    if number_format is not None:
+        celda.number_format = number_format
+    return celda
+
+
+def _append_streaming(
+    ws,
+    valores,
+    *,
+    font: Font | None = None,
+    fill: PatternFill | None = None,
+    alignment: Alignment | None = None,
+    border: Border | None = None,
+):
+    ws.append([
+        _celda_streaming(ws, valor, font=font, fill=fill, alignment=alignment, border=border)
+        for valor in valores
+    ])
+
+
+def _nombres_encabezado_unicos(valores) -> list[str]:
+    vistos: dict[str, int] = {}
+    nombres: list[str] = []
+    for idx, valor in enumerate(valores, 1):
+        base = str(valor).strip() if valor is not None else ""
+        if not base:
+            base = f"Columna {idx}"
+        veces = vistos.get(base, 0) + 1
+        vistos[base] = veces
+        nombres.append(base if veces == 1 else f"{base} {veces}")
+    return nombres
+
+
+def _ajustar_columnas_streaming(ws, encabezados: list[str]) -> None:
+    for idx, encabezado in enumerate(encabezados, 1):
+        letra = get_column_letter(idx)
+        ws.column_dimensions[letra].width = max(10, min(42, len(str(encabezado)) + 2))
+
+
+def _agregar_tabla_streaming(ws, nombre: str, encabezados: list[str], max_row: int, max_col: int) -> None:
+    if max_row < 1 or max_col < 1:
+        return
+    ref = f"A1:{get_column_letter(max_col)}{max_row}"
+    ws.auto_filter.ref = ref
+    if max_row <= 1:
+        return
+    try:
+        tabla = Table(displayName=nombre, ref=ref)
+        tabla._initialise_columns()
+        for columna, encabezado in zip(tabla.tableColumns, encabezados[:max_col]):
+            columna.name = str(encabezado)
+        tabla.tableStyleInfo = TableStyleInfo(
+            name="TableStyleLight1",
+            showFirstColumn=False,
+            showLastColumn=False,
+            showRowStripes=True,
+            showColumnStripes=False,
+        )
+        with warnings.catch_warnings():
+            warnings.filterwarnings(
+                "ignore",
+                message="In write-only mode you must add table columns manually",
+                category=UserWarning,
+            )
+            ws.add_table(tabla)
+    except Exception:
+        ws.auto_filter.ref = ref
+
+
+def _llenar_resumen_streaming(ws, df: pd.DataFrame, ctx: ContextoInformante) -> None:
+    resumen = _resumen_empresa(df, ctx)
+    ws.sheet_view.showGridLines = False
+    ws.freeze_panes = "A5"
+    ws.column_dimensions["A"].width = 22
+    ws.column_dimensions["B"].width = 42
+    ws.column_dimensions["C"].width = 7
+    ws.column_dimensions["D"].width = 18
+
+    titulo_font = Font(bold=True, size=16, color="1E3A8A")
+    subtitulo_font = Font(color="374151")
+    header_font = Font(bold=True, color="111827")
+    header_fill = PatternFill("solid", fgColor="F3F4F6")
+
+    _append_streaming(ws, ["Resumen financiero"], font=titulo_font)
+    _append_streaming(ws, [f"{ctx.razon_social} · NIT {ctx.nit}"], font=subtitulo_font)
+    _append_streaming(ws, [f"Año gravable {ctx.ano_gravable} · Meses {ctx.mes_inicio:02d} a {ctx.mes_fin:02d}"])
+    ws.append([])
+    _append_streaming(ws, ["Sección", "Concepto", "Moneda", "Valor"], font=header_font, fill=header_fill)
+
+    filas = [
+        ("Ingresos", "Ingresos brutos", resumen["ingresos_brutos"]),
+        ("Ingresos", "Devoluciones, rebajas y descuentos", resumen["devoluciones_ingresos"]),
+        ("Ingresos", "Ingresos netos", resumen["ingresos_netos"]),
+        ("Ingresos", "IVA generado neto", resumen["iva_generado"]),
+        ("Ingresos", "Total ingresos con IVA", resumen["total_ingresos"]),
+        ("Gastos y costos", "Gastos / costos brutos", resumen["gastos_brutos"]),
+        ("Gastos y costos", "Devoluciones en gastos", resumen["devoluciones_gastos"]),
+        ("Gastos y costos", "Gastos / costos netos", resumen["gastos_netos"]),
+        ("Gastos y costos", "IVA descontable / mayor valor neto", resumen["iva_descontable"]),
+        ("Gastos y costos", "Total gastos con IVA", resumen["total_gastos"]),
+        ("Nómina", "Nómina identificada", resumen["nomina"]),
+        ("Resultado estimado", "Utilidad estimada sin IVA", resumen["utilidad_estimada"]),
+    ]
+    for seccion, concepto, valor in filas:
+        numero = "-" if valor in (None, 0) else round(valor)
+        row = [
+            _celda_streaming(ws, seccion),
+            _celda_streaming(ws, concepto),
+            _celda_streaming(ws, "$" if valor not in (None, 0) else "", alignment=Alignment(horizontal="center")),
+            _celda_streaming(ws, numero, alignment=Alignment(horizontal="right"), number_format='#,##0;[Red]-#,##0;"-"'),
+        ]
+        ws.append(row)
+
+
+def _llenar_indice_streaming(
+    ws,
+    dataframes: dict[str, pd.DataFrame],
+    ctx: ContextoInformante,
+) -> None:
+    ws.column_dimensions["A"].width = 10
+    ws.column_dimensions["B"].width = 60
+    ws.column_dimensions["C"].width = 12
+    titulo_font = Font(bold=True, size=14)
+    bold = Font(bold=True)
+    _append_streaming(ws, [f"Exógena DIAN AG{ctx.ano_gravable}"], font=titulo_font)
+    ws.append([f"Informante: {ctx.nit} - {ctx.razon_social}"])
+    ws.append([f"Periodo: meses {ctx.mes_inicio:02d} a {ctx.mes_fin:02d}"])
+    ws.append([])
+    _append_streaming(ws, ["Formato", "Descripción", "Registros"], font=bold)
+    cfg = _config()["formatos"]
+    for codigo, df in dataframes.items():
+        ws.append([codigo, cfg[codigo]["nombre"], len(df)])
+
+
+def _copiar_primera_hoja_cargada_streaming(archivo_origen: Path | None, destino) -> bool:
+    if not archivo_origen or not archivo_origen.exists():
+        return False
+    try:
+        wb_origen = load_workbook(archivo_origen, read_only=True, data_only=False)
+    except Exception:
+        return False
+
+    try:
+        origen = wb_origen.worksheets[0]
+        try:
+            min_col, min_row, max_col, max_row = range_boundaries(origen.calculate_dimension())
+        except Exception:
+            min_row, max_row = 1, origen.max_row or 0
+            min_col, max_col = 1, origen.max_column or 0
+        if max_row < 1 or max_col < 1:
+            return False
+
+        destino.sheet_view.showGridLines = False
+        destino.freeze_panes = "A2" if max_row > 1 else None
+        header_font = Font(bold=True, size=10, color="111827")
+        header_fill = PatternFill("solid", fgColor="F3F4F6")
+        header_border = Border(bottom=Side(style="thin", color="D1D5DB"))
+        encabezados: list[str] = []
+        filas_escritas = 0
+
+        for row_idx, fila in enumerate(
+            origen.iter_rows(min_row=min_row, max_row=max_row, min_col=min_col, max_col=max_col),
+            1,
+        ):
+            valores = [celda.value for celda in fila]
+            if row_idx == 1:
+                encabezados = _nombres_encabezado_unicos(valores)
+                _append_streaming(
+                    destino,
+                    encabezados,
+                    font=header_font,
+                    fill=header_fill,
+                    border=header_border,
+                    alignment=Alignment(vertical="center", wrap_text=False),
+                )
+            else:
+                destino.append([_valor_excel(valor) for valor in valores])
+            filas_escritas += 1
+
+        _ajustar_columnas_streaming(destino, encabezados)
+        _agregar_tabla_streaming(
+            destino,
+            "TablaInformeCargado",
+            encabezados,
+            filas_escritas,
+            max_col - min_col + 1,
+        )
+        return filas_escritas > 0
+    finally:
+        wb_origen.close()
+
+
+def _llenar_informe_normalizado_streaming(ws, df: pd.DataFrame) -> None:
+    columnas = _nombres_encabezado_unicos(list(df.columns))
+    if not columnas:
+        return
+    ws.sheet_view.showGridLines = False
+    ws.freeze_panes = "A2" if len(df) else None
+    header_font = Font(bold=True, size=10, color="111827")
+    header_fill = PatternFill("solid", fgColor="F3F4F6")
+    _append_streaming(ws, columnas, font=header_font, fill=header_fill)
+    for row in dataframe_to_rows(df, index=False, header=False):
+        ws.append([_valor_excel(valor) for valor in row])
+    _ajustar_columnas_streaming(ws, columnas)
+    _agregar_tabla_streaming(ws, "TablaInformeCargado", columnas, len(df) + 1, len(columnas))
+
+
+def _llenar_hoja_streaming(
+    ws,
+    df: pd.DataFrame,
+    codigo: str,
+    ctx: ContextoInformante,
+    with_meta: bool,
+):
+    cfg = _config()["formatos"][codigo]
+    columnas = cfg["columnas"]
+    if with_meta:
+        _append_streaming(ws, [f"Formato {codigo} v{cfg['version']} - {cfg['nombre']}"], font=Font(bold=True, size=12))
+        ws.append([f"Informante: {ctx.nit} - {ctx.razon_social}"])
+        ws.append([f"Periodo: {ctx.ano_gravable} ({ctx.mes_inicio:02d} a {ctx.mes_fin:02d})"])
+        ws.append([f"Registros: {len(df)}"])
+        ws.append([])
+
+    fill = PatternFill("solid", fgColor="FFE4B5")
+    bold = Font(bold=True)
+    italic = Font(italic=True, color="808080")
+    _append_streaming(ws, [c["nombre"] for c in columnas], font=bold, fill=fill)
+    _append_streaming(ws, [c["campo"] for c in columnas], font=italic)
+    campos = [c["campo"] for c in columnas]
+    for valores in df[campos].itertuples(index=False, name=None):
+        ws.append([_valor_excel(valor) for valor in valores])
+    for idx, c in enumerate(columnas, 1):
+        ws.column_dimensions[get_column_letter(idx)].width = max(12, min(40, len(c["nombre"]) + 2))
+
+
 def _copiar_primera_hoja_cargada(archivo_origen: Path | None, destino) -> bool:
     if not archivo_origen or not archivo_origen.exists():
         return False
@@ -604,22 +919,25 @@ def _copiar_primera_hoja_cargada(archivo_origen: Path | None, destino) -> bool:
     except Exception:
         return False
 
-    origen = wb_origen.worksheets[0]
-    limites = _rango_con_contenido(origen)
-    if not limites:
-        return False
+    try:
+        origen = wb_origen.worksheets[0]
+        limites = _rango_con_contenido(origen)
+        if not limites:
+            return False
 
-    min_row, max_row, min_col, max_col = limites
-    for src_row in range(min_row, max_row + 1):
-        dst_row = src_row - min_row + 1
-        for src_col in range(min_col, max_col + 1):
-            dst_col = src_col - min_col + 1
-            origen_celda = origen.cell(src_row, src_col)
-            destino_celda = destino.cell(dst_row, dst_col, value=origen_celda.value)
-            destino_celda.number_format = origen_celda.number_format
+        min_row, max_row, min_col, max_col = limites
+        for src_row in range(min_row, max_row + 1):
+            dst_row = src_row - min_row + 1
+            for src_col in range(min_col, max_col + 1):
+                dst_col = src_col - min_col + 1
+                origen_celda = origen.cell(src_row, src_col)
+                destino_celda = destino.cell(dst_row, dst_col, value=origen_celda.value)
+                destino_celda.number_format = origen_celda.number_format
 
-    _formatear_tabla_informe(destino, max_row - min_row + 1, max_col - min_col + 1)
-    return True
+        _formatear_tabla_informe(destino, max_row - min_row + 1, max_col - min_col + 1)
+        return True
+    finally:
+        wb_origen.close()
 
 
 def _llenar_informe_normalizado(ws, df: pd.DataFrame) -> None:
